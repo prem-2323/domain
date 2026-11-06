@@ -262,7 +262,7 @@ def test_public_tracking_privacy_protection(client: TestClient):
 
 
 def test_customer_tracking_with_token(client: TestClient):
-    """With the valid private customer tracking token, submission details are returned without admin notes."""
+    """With the valid private customer tracking token in header, submission details are returned without admin notes."""
     payload = {
         "customer_name": "Alice Verified",
         "customer_email": "alice@verified.gy",
@@ -273,8 +273,11 @@ def test_customer_tracking_with_token(client: TestClient):
     req_id = create_res.json()["request_id"]
     token = create_res.json()["tracking_token"]
 
-    # Lookup WITH customer tracking token
-    verified_res = client.get(f"/api/registrations/requests/{req_id}?token={token}")
+    # 1. Lookup with header X-Customer-Tracking-Token
+    verified_res = client.get(
+        f"/api/registrations/requests/{req_id}",
+        headers={"X-Customer-Tracking-Token": token},
+    )
     assert verified_res.status_code == 200
     v_data = verified_res.json()
 
@@ -283,6 +286,13 @@ def test_customer_tracking_with_token(client: TestClient):
     assert v_data["message"] == "Need Cloudflare DNS delegation."
     # Admin internal notes must still remain private
     assert "admin_notes" not in v_data
+
+    # 2. Token in query parameter is ignored (not accepted in URLs)
+    query_res = client.get(f"/api/registrations/requests/{req_id}?token={token}")
+    assert query_res.status_code == 200
+    q_data = query_res.json()
+    assert "customer_name" not in q_data
+    assert "customer_email" not in q_data
 
 
 def test_customer_tracking_with_invalid_token_falls_back_to_public(client: TestClient):
@@ -295,7 +305,10 @@ def test_customer_tracking_with_invalid_token_falls_back_to_public(client: TestC
     create_res = client.post("/api/registrations/requests", json=payload)
     req_id = create_res.json()["request_id"]
 
-    res = client.get(f"/api/registrations/requests/{req_id}?token=invalid-fake-token")
+    res = client.get(
+        f"/api/registrations/requests/{req_id}",
+        headers={"X-Customer-Tracking-Token": "invalid-fake-token"},
+    )
     assert res.status_code == 200
     data = res.json()
     assert "customer_name" not in data

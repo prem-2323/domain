@@ -1,6 +1,6 @@
 import secrets
 from typing import Optional, Union
-from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, Depends, Header, status
 
 from app.core.config import settings
 from app.core.rate_limiter import rate_limiter
@@ -63,12 +63,16 @@ async def create_registration_request(
     "/requests/{request_id}",
     response_model=Union[PublicRegistrationRequestResponse, CustomerVerifiedRequestResponse],
     summary="Public tracking lookup for a registration request",
-    description="Public callers receive ONLY sanitized status information (Zero customer personal details, messages, or admin notes). If a valid customer tracking token is provided, verified customer submission details are returned.",
+    description="Public callers receive ONLY sanitized status information (Zero customer personal details, messages, or admin notes). If a valid customer tracking token is provided via the X-Customer-Tracking-Token header, verified customer submission details are returned.",
 )
 async def get_registration_request(
     request: Request,
     request_id: str,
-    token: Optional[str] = Query(default=None, description="Optional private customer tracking token"),
+    x_customer_tracking_token: Optional[str] = Header(
+        default=None,
+        alias="X-Customer-Tracking-Token",
+        description="Private customer tracking token header for verified lookup",
+    ),
 ):
     # Enforce rate limiting on public status tracking (60/min per IP)
     rate_limiter.check_rate_limit(
@@ -78,7 +82,8 @@ async def get_registration_request(
         window_seconds=60,
     )
 
-    # 1. If tracking token is provided, verify against customer record
+    # 1. If tracking token is provided via dedicated header, verify against customer record
+    token = x_customer_tracking_token or request.headers.get("x-customer-tracking-token")
     if token and token.strip():
         verified = RegistrationService.get_customer_verified_request(request_id, token.strip())
         if verified:

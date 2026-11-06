@@ -1,6 +1,7 @@
 import re
 import sqlite3
 import secrets
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple
 from pathlib import Path
@@ -56,6 +57,71 @@ class RegistrationService:
         return conn
 
     @classmethod
+    def hash_tracking_token(cls, token: str) -> str:
+        """Computes SHA-256 hex digest of a customer tracking token."""
+        return hashlib.sha256(token.strip().encode("utf-8")).hexdigest().lower()
+
+    @classmethod
+    def is_sha256_hash(cls, value: Optional[str]) -> bool:
+        """Checks if a string is a 64-character lowercase hex SHA-256 digest."""
+        if not value or len(value) != 64:
+            return False
+        return all(c in "0123456789abcdef" for c in value.lower())
+
+    @classmethod
+    def migrate_tracking_tokens(cls) -> int:
+        """
+        Transactional, idempotent migration converting existing plaintext tracking tokens
+        into SHA-256 hashes. Running it multiple times will not re-hash already-hashed tokens.
+        Preserves previously issued tokens so existing customers can continue tracking their requests.
+        Returns the number of rows converted.
+        """
+        cls._db_path.parent.mkdir(parents=True, exist_ok=True)
+        migrated_count = 0
+        with cls._get_connection() as conn:
+            cursor = conn.execute("PRAGMA table_info(registration_requests)")
+            existing_cols = {row["name"] for row in cursor.fetchall()}
+
+            if "tracking_token_hash" not in existing_cols:
+                conn.execute("ALTER TABLE registration_requests ADD COLUMN tracking_token_hash TEXT")
+
+            cursor = conn.execute(
+                "SELECT request_id, tracking_token, tracking_token_hash FROM registration_requests"
+            )
+            rows = cursor.fetchall()
+            with conn:
+                for row in rows:
+                    req_id = row["request_id"]
+                    curr_hash = row["tracking_token_hash"] if "tracking_token_hash" in existing_cols else None
+                    curr_token = row["tracking_token"] if "tracking_token" in existing_cols else None
+
+                    final_hash = None
+                    needs_update = False
+
+                    if curr_hash and cls.is_sha256_hash(curr_hash):
+                        final_hash = curr_hash.lower()
+                        if curr_token and not cls.is_sha256_hash(curr_token):
+                            needs_update = True
+                    elif curr_token:
+                        if cls.is_sha256_hash(curr_token):
+                            final_hash = curr_token.lower()
+                        else:
+                            final_hash = cls.hash_tracking_token(curr_token)
+                            migrated_count += 1
+                        needs_update = True
+
+                    if needs_update and final_hash:
+                        conn.execute(
+                            """
+                            UPDATE registration_requests 
+                            SET tracking_token = ?, tracking_token_hash = ? 
+                            WHERE request_id = ?
+                            """,
+                            (final_hash, final_hash, req_id),
+                        )
+        return migrated_count
+
+    @classmethod
     def _init_db(cls) -> None:
         """
         Initializes SQLite schema, partial unique index for active requests,
@@ -68,6 +134,7 @@ class RegistrationService:
                 CREATE TABLE IF NOT EXISTS registration_requests (
                     request_id TEXT PRIMARY KEY,
                     tracking_token TEXT NOT NULL,
+                    tracking_token_hash TEXT,
                     domain TEXT NOT NULL,
                     customer_name TEXT NOT NULL,
                     customer_email TEXT NOT NULL,
@@ -88,15 +155,20 @@ class RegistrationService:
             cursor = conn.execute("PRAGMA table_info(registration_requests)")
             existing_cols = {row["name"] for row in cursor.fetchall()}
 
+            if "tracking_token_hash" not in existing_cols:
+                conn.execute("ALTER TABLE registration_requests ADD COLUMN tracking_token_hash TEXT")
+
             if "tracking_token" not in existing_cols:
                 conn.execute("ALTER TABLE registration_requests ADD COLUMN tracking_token TEXT")
-                # Backfill any legacy rows with secure tokens
-                cursor_legacy = conn.execute("SELECT request_id FROM registration_requests WHERE tracking_token IS NULL")
-                for r in cursor_legacy.fetchall():
-                    conn.execute(
-                        "UPDATE registration_requests SET tracking_token = ? WHERE request_id = ?",
-                        (secrets.token_urlsafe(32), r["request_id"]),
-                    )
+
+            if "message" not in existing_cols:
+                conn.execute("ALTER TABLE registration_requests ADD COLUMN message TEXT")
+
+            if "confirmed_price" not in existing_cols:
+                conn.execute("ALTER TABLE registration_requests ADD COLUMN confirmed_price REAL")
+
+            if "admin_notes" not in existing_cols:
+                conn.execute("ALTER TABLE registration_requests ADD COLUMN admin_notes TEXT")
 
             if "confirmation_reference" not in existing_cols:
                 conn.execute("ALTER TABLE registration_requests ADD COLUMN confirmation_reference TEXT")
@@ -114,6 +186,9 @@ class RegistrationService:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_req_domain ON registration_requests(domain)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_req_status ON registration_requests(status)")
             conn.commit()
+
+        # Run safe token hash migration
+        cls.migrate_tracking_tokens()
 
     @classmethod
     def validate_request_input(
@@ -188,9 +263,11 @@ class RegistrationService:
         if not is_valid:
             return False, None, err_msg, 400
 
+        customer_email = req.customer_email.strip().lower()
         now_iso = datetime.now(timezone.utc).isoformat()
         request_id = cls.generate_request_id()
-        tracking_token = cls.generate_tracking_token()
+        raw_tracking_token = cls.generate_tracking_token()
+        token_hash = cls.hash_tracking_token(raw_tracking_token)
         estimated_price = 45.0  # Standard accredited registrar rate
 
         try:
@@ -215,21 +292,22 @@ class RegistrationService:
                         409,
                     )
 
-                # Atomic insert protected by SQLite unique partial index
+                # Atomic insert protected by SQLite unique partial index (only SHA-256 hash stored at rest)
                 conn.execute(
                     """
                     INSERT INTO registration_requests (
-                        request_id, tracking_token, domain, customer_name, customer_email, message,
+                        request_id, tracking_token, tracking_token_hash, domain, customer_name, customer_email, message,
                         status, estimated_annual_price, confirmed_price, currency,
                         admin_notes, confirmation_reference, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         request_id,
-                        tracking_token,
+                        token_hash,
+                        token_hash,
                         normalized_domain,
                         req.customer_name.strip(),
-                        req.customer_email.strip().lower(),
+                        customer_email,
                         req.message.strip() if req.message else None,
                         RegistrationRequestStatus.PENDING.value,
                         estimated_price,
@@ -255,16 +333,20 @@ class RegistrationService:
 
         response = CustomerRequestCreatedResponse(
             request_id=request_id,
-            tracking_token=tracking_token,
+            tracking_token=raw_tracking_token,
             domain=normalized_domain,
             customer_name=req.customer_name.strip(),
-            customer_email=req.customer_email.strip().lower(),
+            customer_email=customer_email,
             status=RegistrationRequestStatus.PENDING,
             status_label=STATUS_LABELS[RegistrationRequestStatus.PENDING],
             estimated_annual_price=estimated_price,
             pricing_status="estimated",
             currency="USD",
             created_at=now_iso,
+            disclaimer=(
+                "Submitting a request does NOT register, hold, or reserve the domain name. "
+                "Allocation requires verification by the University of Guyana .GY Registry and accredited registrars."
+            ),
         )
 
         return True, response, None, 201
@@ -313,16 +395,21 @@ class RegistrationService:
     ) -> Optional[CustomerVerifiedRequestResponse]:
         """
         Returns full customer submission view if the customer provides their private tracking_token.
+        Verifies by hashing the supplied token with SHA-256 and safely comparing with stored hash.
         Still excludes internal admin notes and private registrar liaison comments.
         """
         cls._init_db()
         clean_id = request_id.strip().upper()
         clean_token = tracking_token.strip()
+        if not clean_token:
+            return None
+
+        submitted_hash = cls.hash_tracking_token(clean_token)
 
         with cls._get_connection() as conn:
             cursor = conn.execute(
                 """
-                SELECT request_id, tracking_token, domain, customer_name, customer_email, message,
+                SELECT request_id, tracking_token, tracking_token_hash, domain, customer_name, customer_email, message,
                        status, estimated_annual_price, confirmed_price, currency, created_at, updated_at
                 FROM registration_requests WHERE request_id = ?
                 """,
@@ -332,8 +419,12 @@ class RegistrationService:
             if not row:
                 return None
 
-            # Constant-time comparison of tracking token
-            if not secrets.compare_digest(row["tracking_token"], clean_token):
+            stored_hash = row["tracking_token_hash"] or row["tracking_token"]
+            if not stored_hash:
+                return None
+
+            # Constant-time comparison of SHA-256 hashes
+            if not secrets.compare_digest(stored_hash.lower(), submitted_hash.lower()):
                 return None
 
             status_enum = RegistrationRequestStatus(row["status"])
@@ -358,7 +449,7 @@ class RegistrationService:
 
     @classmethod
     def get_admin_request(cls, request_id: str) -> Optional[AdminRegistrationRequestResponse]:
-        """Full request record for authenticated administrators."""
+        """Full request record for authenticated administrators. Excludes customer tracking tokens."""
         cls._init_db()
         clean_id = request_id.strip().upper()
 
@@ -376,7 +467,6 @@ class RegistrationService:
 
             return AdminRegistrationRequestResponse(
                 request_id=row["request_id"],
-                tracking_token=row["tracking_token"],
                 domain=row["domain"],
                 customer_name=row["customer_name"],
                 customer_email=row["customer_email"],
@@ -398,7 +488,7 @@ class RegistrationService:
     def list_admin_requests(
         cls, status_filter: Optional[RegistrationRequestStatus] = None
     ) -> List[AdminRegistrationRequestResponse]:
-        """Lists requests for authenticated administrators, ordered newest first."""
+        """Lists requests for authenticated administrators, ordered newest first. Excludes customer tracking tokens."""
         cls._init_db()
         with cls._get_connection() as conn:
             if status_filter:
@@ -418,7 +508,6 @@ class RegistrationService:
                 results.append(
                     AdminRegistrationRequestResponse(
                         request_id=row["request_id"],
-                        tracking_token=row["tracking_token"],
                         domain=row["domain"],
                         customer_name=row["customer_name"],
                         customer_email=row["customer_email"],

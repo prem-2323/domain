@@ -454,18 +454,24 @@ export async function submitRegistrationRequest(
 }
 
 export async function getRegistrationRequest(
-  requestId: string
+  requestId: string,
+  trackingToken?: string
 ): Promise<RegistrationRequestItem> {
   const endpoints = [
     `${API_BASE_URL}/api/registrations/requests/${encodeURIComponent(requestId)}`,
     `http://localhost:8000/api/registrations/requests/${encodeURIComponent(requestId)}`,
   ];
 
+  const headers: Record<string, string> = {};
+  if (trackingToken && trackingToken.trim()) {
+    headers['X-Customer-Tracking-Token'] = trackingToken.trim();
+  }
+
   let lastError: Error | null = null;
 
   for (const url of endpoints) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
@@ -491,19 +497,23 @@ export async function getRegistrationRequest(
 
 export async function getPublicRegistrationRequest(
   requestId: string,
-  token?: string
+  trackingToken?: string
 ): Promise<PublicRegistrationRequestItem | RegistrationRequestItem> {
-  const queryParam = token ? `?token=${encodeURIComponent(token)}` : '';
   const endpoints = [
-    `${API_BASE_URL}/api/registrations/requests/${encodeURIComponent(requestId)}${queryParam}`,
-    `http://localhost:8000/api/registrations/requests/${encodeURIComponent(requestId)}${queryParam}`,
+    `${API_BASE_URL}/api/registrations/requests/${encodeURIComponent(requestId)}`,
+    `http://localhost:8000/api/registrations/requests/${encodeURIComponent(requestId)}`,
   ];
+
+  const headers: Record<string, string> = {};
+  if (trackingToken && trackingToken.trim()) {
+    headers['X-Customer-Tracking-Token'] = trackingToken.trim();
+  }
 
   let lastError: Error | null = null;
 
   for (const url of endpoints) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {

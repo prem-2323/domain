@@ -110,9 +110,9 @@ class UpdateRegistrationRequest(BaseModel):
 class AdminRegistrationRequestResponse(BaseModel):
     """
     Full administrative response model for authenticated administrators only.
+    Customer tracking tokens are strictly excluded to protect confidentiality.
     """
     request_id: str
-    tracking_token: str
     domain: str
     customer_name: str
     customer_email: str
