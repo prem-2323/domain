@@ -1,6 +1,12 @@
+from pathlib import Path
 import pytest
 from pydantic import ValidationError
 from app.core.config import Settings, DEV_DEFAULT_SECRET_KEY, DEV_DEFAULT_ADMIN_PASSWORD
+
+# Clearly fake test-only constants for CI/test suites (never used in production)
+FAKE_PROD_SECRET_KEY = "test_fake_production_secret_key_0123456789abcdef_not_real"
+FAKE_PROD_ADMIN_PASSWORD = "test_fake_production_password_strictly_for_tests_12345"
+FAKE_PROD_ADMIN_USERNAME = "test_unique_admin_operator"
 
 
 def test_development_defaults_usable():
@@ -19,9 +25,9 @@ def test_production_rejects_debug_true():
         Settings(
             APP_ENV="production",
             DEBUG=True,
-            ADMIN_USERNAME="secure_admin_ops",
-            SECRET_KEY="98301c25c9a5ffbc00f89722b91c389cf7cf4e119c3650a4a7c4414c70c76313",
-            ADMIN_PASSWORD="q40T_S5k9IxL3TLsbFSeyX3iTPh8j95QwW-C5XsQvw8",
+            ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
+            SECRET_KEY=FAKE_PROD_SECRET_KEY,
+            ADMIN_PASSWORD=FAKE_PROD_ADMIN_PASSWORD,
         )
     assert "DEBUG must be set to False" in str(exc_info.value)
 
@@ -35,8 +41,8 @@ def test_production_rejects_default_admin_username():
                 APP_ENV="production",
                 DEBUG=False,
                 ADMIN_USERNAME=user,
-                SECRET_KEY="98301c25c9a5ffbc00f89722b91c389cf7cf4e119c3650a4a7c4414c70c76313",
-                ADMIN_PASSWORD="q40T_S5k9IxL3TLsbFSeyX3iTPh8j95QwW-C5XsQvw8",
+                SECRET_KEY=FAKE_PROD_SECRET_KEY,
+                ADMIN_PASSWORD=FAKE_PROD_ADMIN_PASSWORD,
             )
         assert "default ADMIN_USERNAME ('admin') is prohibited" in str(exc_info.value)
 
@@ -48,9 +54,9 @@ def test_production_rejects_missing_secret_key():
             Settings(
                 APP_ENV="production",
                 DEBUG=False,
-                ADMIN_USERNAME="secure_admin_ops",
+                ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
                 SECRET_KEY=empty_val,
-                ADMIN_PASSWORD="q40T_S5k9IxL3TLsbFSeyX3iTPh8j95QwW-C5XsQvw8",
+                ADMIN_PASSWORD=FAKE_PROD_ADMIN_PASSWORD,
             )
         assert "SECRET_KEY is required" in str(exc_info.value)
 
@@ -70,9 +76,9 @@ def test_production_rejects_known_default_secret_key():
             Settings(
                 APP_ENV="production",
                 DEBUG=False,
-                ADMIN_USERNAME="secure_admin_ops",
+                ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
                 SECRET_KEY=weak_sec,
-                ADMIN_PASSWORD="q40T_S5k9IxL3TLsbFSeyX3iTPh8j95QwW-C5XsQvw8",
+                ADMIN_PASSWORD=FAKE_PROD_ADMIN_PASSWORD,
             )
         assert "cannot be a known default" in str(exc_info.value)
 
@@ -83,9 +89,9 @@ def test_production_rejects_short_secret_key():
         Settings(
             APP_ENV="production",
             DEBUG=False,
-            ADMIN_USERNAME="secure_admin_ops",
+            ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
             SECRET_KEY="short-secret-key-12345678",
-            ADMIN_PASSWORD="q40T_S5k9IxL3TLsbFSeyX3iTPh8j95QwW-C5XsQvw8",
+            ADMIN_PASSWORD=FAKE_PROD_ADMIN_PASSWORD,
         )
     assert "at least 32 characters" in str(exc_info.value)
 
@@ -97,8 +103,8 @@ def test_production_rejects_missing_admin_password():
             Settings(
                 APP_ENV="production",
                 DEBUG=False,
-                ADMIN_USERNAME="secure_admin_ops",
-                SECRET_KEY="98301c25c9a5ffbc00f89722b91c389cf7cf4e119c3650a4a7c4414c70c76313",
+                ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
+                SECRET_KEY=FAKE_PROD_SECRET_KEY,
                 ADMIN_PASSWORD=empty_val,
             )
         assert "ADMIN_PASSWORD is required" in str(exc_info.value)
@@ -119,8 +125,8 @@ def test_production_rejects_known_default_admin_password():
             Settings(
                 APP_ENV="production",
                 DEBUG=False,
-                ADMIN_USERNAME="secure_admin_ops",
-                SECRET_KEY="98301c25c9a5ffbc00f89722b91c389cf7cf4e119c3650a4a7c4414c70c76313",
+                ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
+                SECRET_KEY=FAKE_PROD_SECRET_KEY,
                 ADMIN_PASSWORD=weak_pwd,
             )
         assert "cannot be a known default" in str(exc_info.value)
@@ -132,8 +138,8 @@ def test_production_rejects_short_admin_password():
         Settings(
             APP_ENV="production",
             DEBUG=False,
-            ADMIN_USERNAME="secure_admin_ops",
-            SECRET_KEY="98301c25c9a5ffbc00f89722b91c389cf7cf4e119c3650a4a7c4414c70c76313",
+            ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
+            SECRET_KEY=FAKE_PROD_SECRET_KEY,
             ADMIN_PASSWORD="shortpass1",
         )
     assert "at least 12 characters" in str(exc_info.value)
@@ -141,51 +147,44 @@ def test_production_rejects_short_admin_password():
 
 def test_production_valid_configuration_success():
     """A valid production configuration with strong entropy and custom username succeeds."""
-    prod_secret = "98301c25c9a5ffbc00f89722b91c389cf7cf4e119c3650a4a7c4414c70c76313"
-    prod_password = "q40T_S5k9IxL3TLsbFSeyX3iTPh8j95QwW-C5XsQvw8"
-    prod_username = "gy_admin_ops_2026"
-
     cfg = Settings(
         APP_ENV="production",
         DEBUG=False,
-        ADMIN_USERNAME=prod_username,
-        SECRET_KEY=prod_secret,
-        ADMIN_PASSWORD=prod_password,
+        ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
+        SECRET_KEY=FAKE_PROD_SECRET_KEY,
+        ADMIN_PASSWORD=FAKE_PROD_ADMIN_PASSWORD,
         CORS_ORIGINS=["https://domains.mastertools.gy"],
     )
 
     assert cfg.APP_ENV == "production"
     assert cfg.DEBUG is False
-    assert cfg.ADMIN_USERNAME == prod_username
-    assert cfg.SECRET_KEY == prod_secret
-    assert cfg.ADMIN_PASSWORD == prod_password
+    assert cfg.ADMIN_USERNAME == FAKE_PROD_ADMIN_USERNAME
+    assert cfg.SECRET_KEY == FAKE_PROD_SECRET_KEY
+    assert cfg.ADMIN_PASSWORD == FAKE_PROD_ADMIN_PASSWORD
     assert cfg.CORS_ORIGINS == ["https://domains.mastertools.gy"]
 
 
 def test_secrets_never_logged_or_exposed_in_repr_or_summary():
     """Verifies that secrets are masked with repr=False and safe summary never leaks secret values."""
-    prod_secret = "98301c25c9a5ffbc00f89722b91c389cf7cf4e119c3650a4a7c4414c70c76313"
-    prod_password = "q40T_S5k9IxL3TLsbFSeyX3iTPh8j95QwW-C5XsQvw8"
-
     cfg = Settings(
         APP_ENV="production",
         DEBUG=False,
-        ADMIN_USERNAME="gy_admin_ops_2026",
-        SECRET_KEY=prod_secret,
-        ADMIN_PASSWORD=prod_password,
+        ADMIN_USERNAME=FAKE_PROD_ADMIN_USERNAME,
+        SECRET_KEY=FAKE_PROD_SECRET_KEY,
+        ADMIN_PASSWORD=FAKE_PROD_ADMIN_PASSWORD,
     )
 
     # 1. repr check: neither secret should be visible in repr() or str()
     repr_str = repr(cfg)
-    assert prod_secret not in repr_str
-    assert prod_password not in repr_str
+    assert FAKE_PROD_SECRET_KEY not in repr_str
+    assert FAKE_PROD_ADMIN_PASSWORD not in repr_str
 
     # 2. get_safe_summary check: must only return boolean flags
     summary = cfg.get_safe_summary()
     assert summary["secret_key_configured"] is True
     assert summary["admin_password_configured"] is True
-    assert prod_secret not in str(summary)
-    assert prod_password not in str(summary)
+    assert FAKE_PROD_SECRET_KEY not in str(summary)
+    assert FAKE_PROD_ADMIN_PASSWORD not in str(summary)
 
 
 def test_cors_origins_flexibility():
@@ -195,3 +194,36 @@ def test_cors_origins_flexibility():
 
     cfg2 = Settings(CORS_ORIGINS="https://frontend.gy, http://localhost:5173")
     assert cfg2.CORS_ORIGINS == ["https://frontend.gy", "http://localhost:5173"]
+
+
+def test_env_example_contains_no_real_or_default_secrets():
+    """
+    Verifies that backend/.env.example does not contain hardcoded development defaults,
+    real credentials, or populated secrets, and enforces empty placeholders.
+    """
+    example_path = Path(__file__).resolve().parents[2] / ".env.example"
+    assert example_path.exists(), f"Could not find .env.example at {example_path}"
+
+    content = example_path.read_text(encoding="utf-8")
+
+    assigned_vars = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            assigned_vars[k.strip()] = v.strip()
+
+    # 1. SECRET_KEY must be an empty placeholder
+    assert assigned_vars.get("SECRET_KEY") == "", "SECRET_KEY in .env.example must be an empty placeholder"
+
+    # 2. ADMIN_PASSWORD must be an empty placeholder
+    assert assigned_vars.get("ADMIN_PASSWORD") == "", "ADMIN_PASSWORD in .env.example must be an empty placeholder"
+
+    # 3. ADMIN_USERNAME must not default to 'admin'
+    assert assigned_vars.get("ADMIN_USERNAME") != "admin", "ADMIN_USERNAME in .env.example must not default to 'admin'"
+
+    # 4. Known development defaults must not appear in .env.example
+    assert DEV_DEFAULT_SECRET_KEY not in content, "DEV_DEFAULT_SECRET_KEY must not appear in .env.example"
+    assert DEV_DEFAULT_ADMIN_PASSWORD not in content, "DEV_DEFAULT_ADMIN_PASSWORD must not appear in .env.example"
