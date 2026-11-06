@@ -694,14 +694,26 @@ export async function getProposedDnsPlan(
   const endpoints = getApiEndpoints(
     `/api/integrations/plan?domain=${encodeURIComponent(domain)}&target=${encodeURIComponent(target)}`
   );
+  const token = getAdminToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Admin-Session'] = token;
+  }
 
   let lastError: Error | null = null;
   for (const url of endpoints) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       const data = await res.json().catch(() => null);
       if (res.ok && data) {
         return data as ProposedDnsPlan;
+      }
+      if (res.status === 401) {
+        throw new RegistrationApiError('Administrator authentication required to inspect DNS plans.', 401);
+      }
+      if (res.status === 403) {
+        throw new RegistrationApiError(data?.detail?.message || 'Access denied: Admin privileges required.', 403);
       }
       if (data?.detail?.message) {
         throw new RegistrationApiError(data.detail.message, res.status);
@@ -722,18 +734,32 @@ export async function applyDnsPlan(
   request: DnsApplyRequest
 ): Promise<IntegrationDeploymentStatus> {
   const endpoints = getApiEndpoints('/api/integrations/apply');
+  const token = getAdminToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Admin-Session'] = token;
+  }
 
   let lastError: Error | null = null;
   for (const url of endpoints) {
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(request),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data) {
         return data as IntegrationDeploymentStatus;
+      }
+      if (res.status === 401) {
+        throw new RegistrationApiError('Administrator authentication required to apply DNS changes.', 401);
+      }
+      if (res.status === 403) {
+        throw new RegistrationApiError(data?.detail?.message || 'Access denied: Admin privileges required.', 403);
       }
       const errMsg =
         data?.detail?.message ||
@@ -759,16 +785,29 @@ export async function verifyDeployment(
   const endpoints = getApiEndpoints(
     `/api/integrations/verify?domain=${encodeURIComponent(domain)}&target=${encodeURIComponent(target)}`
   );
+  const token = getAdminToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Admin-Session'] = token;
+  }
 
   let lastError: Error | null = null;
   for (const url of endpoints) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       const data = await res.json().catch(() => null);
       if (res.ok && data) {
         return data as IntegrationDeploymentStatus;
       }
+      if (res.status === 401) {
+        throw new RegistrationApiError('Administrator authentication required to verify deployment.', 401);
+      }
+      if (res.status === 403) {
+        throw new RegistrationApiError(data?.detail?.message || 'Access denied: Admin privileges required.', 403);
+      }
     } catch (err) {
+      if (err instanceof RegistrationApiError) throw err;
       lastError = err as Error;
     }
   }
@@ -785,10 +824,16 @@ export async function getCloudflareZoneInfo(
   const endpoints = getApiEndpoints(
     `/api/integrations/cloudflare/zone?domain=${encodeURIComponent(domain)}`
   );
+  const token = getAdminToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Admin-Session'] = token;
+  }
 
   for (const url of endpoints) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers });
       if (res.ok) {
         return (await res.json()) as CloudflareZoneInfo;
       }

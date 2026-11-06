@@ -168,6 +168,9 @@ export const QuickConnectModal: React.FC<QuickConnectModalProps> = ({
       const res = await applyDnsPlan({
         domain,
         target_platform: target,
+        plan_id: plan.plan_id || '',
+        plan_signature: plan.plan_signature || '',
+        expires_at: plan.expires_at || '',
         approved: true,
         override_conflicts: overrideApproved,
       });

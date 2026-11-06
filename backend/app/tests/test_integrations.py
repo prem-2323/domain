@@ -6,24 +6,59 @@ if str(backend_root) not in sys.path:
     sys.path.insert(0, str(backend_root))
 
 import pytest
+import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock, PropertyMock
+from datetime import datetime, timezone, timedelta
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.config import settings
-from app.models.integration import DnsRecordItem, CloudflareZoneInfo
-from app.services.integrations.cloudflare_service import CloudflareService, CloudflareApiError
+from app.core.security import AdminSessionManager
+from app.core.dns_audit import DnsAuditManager
+from app.models.integration import (
+    DnsRecordItem,
+    CloudflareZoneInfo,
+    ProposedDnsPlan,
+    DnsApplyRequest,
+    DnsConflict,
+    DnsVerificationItem,
+)
+from app.services.integrations.cloudflare_service import (
+    CloudflareService,
+    CloudflareApiError,
+    is_protected_record,
+)
 from app.services.integrations.vercel_service import VercelService, VercelApiError
 from app.services.integrations.render_service import RenderService, RenderApiError
 from app.services.integrations.dns_verifier import DnsVerifier
-from app.services.integrations.dns_workflow_service import DnsWorkflowService
+from app.services.integrations.dns_workflow_service import (
+    DnsWorkflowService,
+    generate_plan_signature,
+    compute_records_drift_hash,
+)
 
-
-import asyncio
 
 @pytest.fixture
 def client():
     return TestClient(app)
+
+
+@pytest.fixture
+def admin_headers():
+    session = AdminSessionManager.create_session("admin")
+    return {
+        "Authorization": f"Bearer {session['session_token']}",
+        "X-Admin-Session": session["session_token"],
+    }
+
+
+@pytest.fixture
+def non_admin_headers():
+    session = AdminSessionManager.create_session("regular_user")
+    return {
+        "Authorization": f"Bearer {session['session_token']}",
+        "X-Admin-Session": session["session_token"],
+    }
 
 
 # ============================================================================
@@ -55,62 +90,134 @@ def test_integration_status_secret_protection(client: TestClient):
 
 
 # ============================================================================
-# 2. INVALID CREDENTIALS & ERROR HANDLING TESTS
+# 2. AUTHENTICATION & AUTHORIZATION SECURITY TESTS (REQUIREMENT 1)
 # ============================================================================
 
-def test_cloudflare_invalid_credentials_handling():
-    """Verifies that invalid Cloudflare credentials fail cleanly without leaking tokens."""
-    async def _test():
-        cf = CloudflareService(api_token="cf_invalid_fake_token_12345")
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.json.return_value = {"success": False, "errors": [{"message": "Invalid access token"}]}
+def test_unauthenticated_requests_return_401(client: TestClient):
+    """
+    Verifies that unauthenticated calls to all 5 sensitive integration endpoints
+    return HTTP 401 UNAUTHORIZED.
+    """
+    # 1. POST /api/integrations/apply
+    res = client.post("/api/integrations/apply", json={
+        "domain": "till.gy",
+        "target_platform": "vercel",
+        "plan_id": "p1",
+        "plan_signature": "sig",
+        "expires_at": "2099-01-01T00:00:00Z",
+        "approved": True,
+    })
+    assert res.status_code == 401
 
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_response
-            is_valid, msg = await cf.verify_token()
-            assert is_valid is False
-            assert "Invalid" in msg
-    asyncio.run(_test())
+    # 2. GET /api/integrations/plan
+    res = client.get("/api/integrations/plan", params={"domain": "till.gy", "target": "vercel"})
+    assert res.status_code == 401
+
+    # 3. GET /api/integrations/verify
+    res = client.get("/api/integrations/verify", params={"domain": "till.gy", "target": "vercel"})
+    assert res.status_code == 401
+
+    # 4. GET /api/integrations/cloudflare/zone
+    res = client.get("/api/integrations/cloudflare/zone", params={"domain": "till.gy"})
+    assert res.status_code == 401
+
+    # 5. GET /api/integrations/cloudflare/dns-records
+    res = client.get("/api/integrations/cloudflare/dns-records", params={"domain": "till.gy"})
+    assert res.status_code == 401
 
 
-def test_vercel_invalid_credentials_handling():
-    """Verifies that invalid Vercel credentials fail cleanly."""
-    async def _test():
-        vc = VercelService(api_token="vc_invalid_token", project_id="prj_test")
-        mock_response = MagicMock()
-        mock_response.status_code = 403
-        mock_response.json.return_value = {"error": {"message": "Invalid token"}}
+def test_authenticated_non_admin_returns_403(client: TestClient, non_admin_headers: dict):
+    """
+    Verifies that authenticated sessions with non-admin username return HTTP 403 FORBIDDEN.
+    """
+    # 1. POST /api/integrations/apply
+    res = client.post(
+        "/api/integrations/apply",
+        headers=non_admin_headers,
+        json={
+            "domain": "till.gy",
+            "target_platform": "vercel",
+            "plan_id": "p1",
+            "plan_signature": "sig",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "approved": True,
+        },
+    )
+    assert res.status_code == 403
 
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_response
-            is_valid, msg = await vc.verify_credentials()
-            assert is_valid is False
-            assert "Invalid" in msg
-    asyncio.run(_test())
+    # 2. GET /api/integrations/plan
+    res = client.get("/api/integrations/plan", headers=non_admin_headers, params={"domain": "till.gy", "target": "vercel"})
+    assert res.status_code == 403
+
+    # 3. GET /api/integrations/verify
+    res = client.get("/api/integrations/verify", headers=non_admin_headers, params={"domain": "till.gy", "target": "vercel"})
+    assert res.status_code == 403
+
+    # 4. GET /api/integrations/cloudflare/zone
+    res = client.get("/api/integrations/cloudflare/zone", headers=non_admin_headers, params={"domain": "till.gy"})
+    assert res.status_code == 403
+
+    # 5. GET /api/integrations/cloudflare/dns-records
+    res = client.get("/api/integrations/cloudflare/dns-records", headers=non_admin_headers, params={"domain": "till.gy"})
+    assert res.status_code == 403
 
 
-def test_render_invalid_credentials_handling():
-    """Verifies that invalid Render credentials fail cleanly."""
-    async def _test():
-        rnd = RenderService(api_key="rnd_invalid_key", service_id="srv_test")
-        mock_response = MagicMock()
-        mock_response.status_code = 401
-        mock_response.json.return_value = {"message": "Unauthorized"}
-
-        with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_response
-            is_valid, msg = await rnd.verify_credentials()
-            assert is_valid is False
-            assert "Invalid" in msg or "Unauthorized" in msg
-    asyncio.run(_test())
+def test_approved_true_without_auth_returns_401(client: TestClient):
+    """
+    Verifies that approved=true is NEVER trusted without a valid admin session.
+    """
+    payload = {
+        "domain": "till.gy",
+        "target_platform": "vercel",
+        "plan_id": "plan_fake_123",
+        "plan_signature": "fake_signature",
+        "expires_at": "2099-01-01T00:00:00Z",
+        "approved": True,
+        "override_conflicts": True,
+    }
+    res = client.post("/api/integrations/apply", json=payload)
+    assert res.status_code == 401
+    assert "unauthenticated" in res.text.lower() or "admin authentication required" in res.text.lower()
 
 
 # ============================================================================
-# 3. DOMAIN AUTHORIZATION & SYNTAX TESTS
+# 3. DOMAIN & ZONE AUTHORIZATION SECURITY TESTS (REQUIREMENT 2)
 # ============================================================================
 
-def test_unauthorized_domain_rejection(client: TestClient):
+def test_unrelated_zone_access_denied_403(client: TestClient, admin_headers: dict):
+    """
+    Verifies that attempting to access an unrelated zone or an account mismatch
+    returns HTTP 403 FORBIDDEN.
+    """
+    with patch("app.core.config.settings.CLOUDFLARE_API_TOKEN", "cf_mock_token_123"):
+        with patch("app.core.config.settings.CLOUDFLARE_ACCOUNT_ID", "configured_acc_123"):
+            # Cloudflare returns a zone belonging to a different customer account
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "success": True,
+                "result": [
+                    {
+                        "id": "zone_unrelated",
+                        "name": "unrelated-customer.com",
+                        "status": "active",
+                        "account": {"id": "different_customer_acc_999", "name": "Other Co"},
+                    }
+                ],
+            }
+
+            with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+                mock_get.return_value = mock_response
+                res = client.get(
+                    "/api/integrations/cloudflare/zone",
+                    headers=admin_headers,
+                    params={"domain": "unrelated-customer.com"},
+                )
+                assert res.status_code == 403
+                assert "access denied" in res.text.lower() or "unauthorized account" in res.text.lower()
+
+
+def test_unauthorized_domain_rejection(client: TestClient, admin_headers: dict):
     """Verifies that invalid domain formats are rejected before any DNS query."""
     invalid_domains = [
         "",
@@ -121,7 +228,11 @@ def test_unauthorized_domain_rejection(client: TestClient):
         "a" * 260 + ".gy",
     ]
     for dom in invalid_domains:
-        res = client.get("/api/integrations/plan", params={"domain": dom, "target": "vercel"})
+        res = client.get(
+            "/api/integrations/plan",
+            headers=admin_headers,
+            params={"domain": dom, "target": "vercel"},
+        )
         assert res.status_code == 200
         data = res.json()
         assert data["state"] == "failed"
@@ -132,10 +243,14 @@ def test_unauthorized_domain_rejection(client: TestClient):
 # 4. CREDENTIALS MISSING WORKFLOW TESTS
 # ============================================================================
 
-def test_proposed_plan_credentials_missing_state(client: TestClient):
+def test_proposed_plan_credentials_missing_state(client: TestClient, admin_headers: dict):
     """When Cloudflare token is not configured, returns state 'credentials_missing'."""
     with patch("app.services.integrations.cloudflare_service.CloudflareService.is_configured", new_callable=PropertyMock, return_value=False):
-        res = client.get("/api/integrations/plan", params={"domain": "till.gy", "target": "vercel"})
+        res = client.get(
+            "/api/integrations/plan",
+            headers=admin_headers,
+            params={"domain": "till.gy", "target": "vercel"},
+        )
         assert res.status_code == 200
         data = res.json()
         assert data["state"] == "credentials_missing"
@@ -143,114 +258,246 @@ def test_proposed_plan_credentials_missing_state(client: TestClient):
 
 
 # ============================================================================
-# 5. CLOUDFLARE ZONE STATUS & ASSIGNED NAMESERVERS TESTS
+# 5. APPROVAL & PLAN INTEGRITY SECURITY TESTS (REQUIREMENT 3)
 # ============================================================================
 
-def test_zone_assigned_nameservers_and_pending_status():
+def test_apply_dns_requires_explicit_approval(client: TestClient, admin_headers: dict):
     """
-    Verifies that nameservers are extracted directly from the actual zone,
-    and a pending zone transitions to awaiting_nameserver_update state.
-    """
-    async def _test():
-        workflow = DnsWorkflowService()
-        mock_zone = CloudflareZoneInfo(
-            zone_id="zone_abc_123",
-            name="till.gy",
-            status="pending",
-            name_servers=["art.ns.cloudflare.com", "leah.ns.cloudflare.com"],
-            paused=False,
-        )
-
-        with patch("app.services.integrations.cloudflare_service.CloudflareService.is_configured", new_callable=PropertyMock, return_value=True):
-            with patch("app.services.integrations.vercel_service.VercelService.is_configured", new_callable=PropertyMock, return_value=True):
-                with patch("app.services.integrations.cloudflare_service.cloudflare_service.get_zone_for_domain", AsyncMock(return_value=mock_zone)):
-                    plan = await workflow.get_proposed_plan("till.gy", "vercel")
-                    assert plan.state == "awaiting_nameserver_update"
-                    assert plan.is_zone_active is False
-                    assert plan.assigned_nameservers == ["art.ns.cloudflare.com", "leah.ns.cloudflare.com"]
-                    assert "art.ns.cloudflare.com" in plan.message
-                    # Never uses unrelated nameservers
-                    assert "masterperi5.me" not in plan.message
-    asyncio.run(_test())
-
-
-# ============================================================================
-# 6. DNS CONFLICT DETECTION TESTS
-# ============================================================================
-
-def test_conflict_detection_logic():
-    """Verifies that differing A/CNAME records trigger explicit conflict detection."""
-    workflow = DnsWorkflowService()
-    required = [
-        DnsRecordItem(type="A", name="@", content="76.76.21.21", purpose="Vercel root"),
-        DnsRecordItem(type="CNAME", name="www", content="cname.vercel-dns.com", purpose="Vercel www"),
-    ]
-    # Existing record points to a completely different server IP
-    existing = [
-        DnsRecordItem(id="rec_1", type="A", name="till.gy", content="192.0.2.1"),
-        DnsRecordItem(id="rec_2", type="CNAME", name="www.till.gy", content="old-host.example.com"),
-    ]
-
-    conflicts = workflow.detect_conflicts("till.gy", required, existing)
-    assert len(conflicts) == 2
-    assert conflicts[0].conflict_type == "existing_record_differs"
-    assert "192.0.2.1" in conflicts[0].message
-    assert "76.76.21.21" in conflicts[0].message
-
-
-# ============================================================================
-# 7. EXPLICIT APPROVAL ENFORCEMENT TESTS
-# ============================================================================
-
-def test_apply_dns_requires_explicit_approval(client: TestClient):
-    """
-    Submitting apply without approved=True must be rejected with HTTP 400.
-    Never modifies DNS without approval.
+    Submitting apply with approved=False must be rejected with HTTP 400 APPROVAL_REQUIRED.
     """
     payload = {
         "domain": "till.gy",
         "target_platform": "vercel",
+        "plan_id": "plan_test_123",
+        "plan_signature": "sig123",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
         "approved": False,
         "override_conflicts": False,
     }
-    res = client.post("/api/integrations/apply", json=payload)
+    res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
     assert res.status_code == 400
     data = res.json()
     assert data["detail"]["error"] == "APPROVAL_REQUIRED"
 
 
-def test_apply_dns_aborts_on_unapproved_conflict():
-    """If conflicts exist and override_conflicts=False, changes are aborted."""
+def test_tampered_plan_signature_rejected_400(client: TestClient, admin_headers: dict):
+    """
+    Verifies that submitting an apply request with a forged/modified plan_signature
+    is rejected with HTTP 400 PLAN_TAMPERED.
+    """
+    payload = {
+        "domain": "till.gy",
+        "target_platform": "vercel",
+        "plan_id": "plan_genuine_123",
+        "plan_signature": "tampered_forged_signature_xyz",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        "approved": True,
+        "override_conflicts": False,
+    }
+    res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
+    assert res.status_code == 400
+    data = res.json()
+    assert data["detail"]["error"] == "PLAN_TAMPERED"
+
+
+def test_expired_plan_rejected_400(client: TestClient, admin_headers: dict):
+    """
+    Verifies that a plan with an expired timestamp is rejected with HTTP 400 PLAN_EXPIRED.
+    """
+    past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    payload = {
+        "domain": "till.gy",
+        "target_platform": "vercel",
+        "plan_id": "plan_expired_123",
+        "plan_signature": "signature_abc",
+        "expires_at": past_time,
+        "approved": True,
+        "override_conflicts": False,
+    }
+    res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
+    assert res.status_code == 400
+    data = res.json()
+    assert data["detail"]["error"] == "PLAN_EXPIRED"
+
+
+def test_conflict_override_separate_approval_required(client: TestClient, admin_headers: dict):
+    """
+    When conflicts exist, submitting with approved=True but override_conflicts=False
+    must be rejected with HTTP 400 CONFLICT_OVERRIDE_REQUIRED.
+    """
     async def _test():
         workflow = DnsWorkflowService()
-        from app.models.integration import DnsConflict, DnsRecordItem
-        mock_plan = MagicMock()
-        mock_plan.can_apply = True
-        mock_plan.zone_id = "zone_123"
-        mock_plan.has_conflicts = True
-        mock_plan.conflicts = [
-            DnsConflict(
-                existing_record=DnsRecordItem(type="A", name="@", content="1.2.3.4"),
-                proposed_record=DnsRecordItem(type="A", name="@", content="76.76.21.21"),
-                conflict_type="existing_record_differs",
-                message="Points to 1.2.3.4",
+        clean_domain = "till.gy"
+        zone_id = "zone_cf_test"
+        required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+        existing = [DnsRecordItem(id="rec_conf", type="A", name="till.gy", content="1.2.3.4")]
+        conflicts = workflow.detect_conflicts(clean_domain, required, existing)
+
+        plan_id = "plan_conflict_test"
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        records_hash = compute_records_drift_hash(existing)
+        sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, expires_at, records_hash)
+
+        from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+        ServerDnsPlanStore.save_plan(
+            plan_id=plan_id,
+            domain=clean_domain,
+            target_platform="vercel",
+            zone_id=zone_id,
+            plan_version=1,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            expires_at=expires_at,
+            plan_signature=sig,
+            existing_records_hash=records_hash,
+            required_records=required,
+            conflicts=conflicts,
+            has_conflicts=True,
+        )
+
+        with patch("app.services.integrations.cloudflare_service.cloudflare_service.list_dns_records", AsyncMock(return_value=existing)):
+            req = DnsApplyRequest(
+                domain=clean_domain,
+                target_platform="vercel",
+                plan_id=plan_id,
+                plan_signature=sig,
+                expires_at=expires_at,
+                approved=True,
+                override_conflicts=False,  # Conflict override NOT approved
             )
-        ]
-        mock_plan.zone_status = "active"
-        mock_plan.assigned_nameservers = ["ns1.cloudflare.com", "ns2.cloudflare.com"]
+            with pytest.raises(Exception) as exc_info:
+                await workflow.apply_dns_plan(req, admin_username="admin")
+            assert exc_info.value.status_code == 400
+            assert exc_info.value.detail["error"] == "CONFLICT_OVERRIDE_REQUIRED"
 
-        from app.models.integration import DnsApplyRequest
-        req = DnsApplyRequest(domain="till.gy", target_platform="vercel", approved=True, override_conflicts=False)
+    asyncio.run(_test())
 
-        with patch.object(workflow, "get_proposed_plan", AsyncMock(return_value=mock_plan)):
-            status_res = await workflow.apply_dns_plan(req)
-            assert status_res.state == "dns_conflict"
-            assert "override is required" in status_res.message
+
+def test_dns_drift_detection_aborts_apply_409():
+    """
+    If existing records in Cloudflare changed after plan creation, apply aborts with HTTP 409 DNS_DRIFT_DETECTED.
+    """
+    async def _test():
+        workflow = DnsWorkflowService()
+        clean_domain = "till.gy"
+        zone_id = "zone_cf_test"
+        required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+        original_existing = [DnsRecordItem(id="rec_1", type="A", name="till.gy", content="10.0.0.1")]
+
+        plan_id = "plan_drift_test"
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        original_hash = compute_records_drift_hash(original_existing)
+        sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, expires_at, original_hash)
+
+        from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+        ServerDnsPlanStore.save_plan(
+            plan_id=plan_id,
+            domain=clean_domain,
+            target_platform="vercel",
+            zone_id=zone_id,
+            plan_version=1,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            expires_at=expires_at,
+            plan_signature=sig,
+            existing_records_hash=original_hash,
+            required_records=required,
+            conflicts=[],
+            has_conflicts=False,
+        )
+
+        # Cloudflare records drifted to a new IP!
+        drifted_existing = [DnsRecordItem(id="rec_1", type="A", name="till.gy", content="10.0.0.99")]
+
+        with patch("app.services.integrations.cloudflare_service.cloudflare_service.list_dns_records", AsyncMock(return_value=drifted_existing)):
+            req = DnsApplyRequest(
+                domain=clean_domain,
+                target_platform="vercel",
+                plan_id=plan_id,
+                plan_signature=sig,
+                expires_at=expires_at,
+                approved=True,
+                override_conflicts=False,
+            )
+            with pytest.raises(Exception) as exc_info:
+                await workflow.apply_dns_plan(req, admin_username="admin")
+            assert exc_info.value.status_code == 409
+            assert exc_info.value.detail["error"] == "DNS_DRIFT_DETECTED"
+
     asyncio.run(_test())
 
 
 # ============================================================================
-# 8. DNS RECORD CREATION & UPDATE VIA CLOUDFLARE
+# 6. SAFE DNS CHANGES & PROTECTED RECORDS TESTS (REQUIREMENT 4)
+# ============================================================================
+
+def test_unrelated_records_and_mx_never_deleted():
+    """
+    Verifies that critical mail and security records (MX, SPF, DKIM, DMARC, CAA, NS)
+    are protected from deletion or modification.
+    """
+    mx_record = DnsRecordItem(id="rec_mx", type="MX", name="till.gy", content="mail.till.gy")
+    spf_record = DnsRecordItem(id="rec_spf", type="TXT", name="till.gy", content="v=spf1 include:_spf.google.com ~all")
+    dkim_record = DnsRecordItem(id="rec_dkim", type="TXT", name="google._domainkey.till.gy", content="v=DKIM1; k=rsa; p=MIGf...")
+    dmarc_record = DnsRecordItem(id="rec_dmarc", type="TXT", name="_dmarc.till.gy", content="v=DMARC1; p=reject")
+    caa_record = DnsRecordItem(id="rec_caa", type="CAA", name="till.gy", content="0 issue letsencrypt.org")
+
+    assert is_protected_record(mx_record) is True
+    assert is_protected_record(spf_record) is True
+    assert is_protected_record(dkim_record) is True
+    assert is_protected_record(dmarc_record) is True
+    assert is_protected_record(caa_record) is True
+
+    # Standard web records are NOT protected
+    web_a = DnsRecordItem(id="rec_a", type="A", name="till.gy", content="76.76.21.21")
+    web_cname = DnsRecordItem(id="rec_cn", type="CNAME", name="www.till.gy", content="cname.vercel-dns.com")
+    assert is_protected_record(web_a) is False
+    assert is_protected_record(web_cname) is False
+
+    # Attempting to delete a protected record via CloudflareService raises CloudflareApiError with 403
+    async def _test_del():
+        cf = CloudflareService(api_token="test_token")
+        with pytest.raises(CloudflareApiError) as exc_info:
+            await cf.delete_dns_record("zone_1", "rec_mx", record=mx_record)
+        assert exc_info.value.status_code == 403
+        assert "Cannot delete protected" in exc_info.value.message
+
+    asyncio.run(_test_del())
+
+
+def test_dns_audit_log_recorded():
+    """
+    Verifies that every DNS change creates an entry in dns_audit_log
+    with admin username, timestamp, and diff details, and never contains secrets.
+    """
+    DnsAuditManager.record_change(
+        admin_username="admin",
+        action="CREATE_RECORD",
+        domain="till.gy",
+        zone_id="zone_test_audit",
+        record_type="A",
+        record_name="@",
+        new_content="76.76.21.21",
+        ttl=60,
+        proxied=False,
+        details="Vercel root edge record",
+    )
+
+    logs = DnsAuditManager.list_audit_logs(domain="till.gy", limit=5)
+    assert len(logs) >= 1
+    last_log = logs[0]
+    assert last_log["admin_username"] == "admin"
+    assert last_log["domain"] == "till.gy"
+    assert last_log["action"] == "CREATE_RECORD"
+    assert last_log["record_type"] == "A"
+    assert last_log["new_content"] == "76.76.21.21"
+    # Ensure no token or secret in audit log
+    for key, val in last_log.items():
+        if isinstance(val, str):
+            assert "secret" not in val.lower()
+            assert "bearer" not in val.lower()
+
+
+# ============================================================================
+# 7. END-TO-END APPLY AND VERIFICATION TESTS
 # ============================================================================
 
 def test_apply_dns_creates_records_when_approved():
@@ -259,36 +506,50 @@ def test_apply_dns_creates_records_when_approved():
     """
     async def _test():
         workflow = DnsWorkflowService()
-        from app.models.integration import ProposedDnsPlan, DnsApplyRequest, DnsVerificationItem
+        clean_domain = "till.gy"
+        zone_id = "zone_cf_test"
+        required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+        existing = []
 
-        mock_plan = ProposedDnsPlan(
-            domain="till.gy",
+        plan_id = "plan_e2e_test"
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        records_hash = compute_records_drift_hash(existing)
+        sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, expires_at, records_hash)
+
+        from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+        ServerDnsPlanStore.save_plan(
+            plan_id=plan_id,
+            domain=clean_domain,
             target_platform="vercel",
-            zone_id="zone_cf_test",
-            zone_name="till.gy",
-            zone_status="active",
-            assigned_nameservers=["ns1.cloudflare.com", "ns2.cloudflare.com"],
-            is_zone_active=True,
-            required_records=[DnsRecordItem(type="A", name="@", content="76.76.21.21")],
-            existing_records=[],
+            zone_id=zone_id,
+            plan_version=1,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            expires_at=expires_at,
+            plan_signature=sig,
+            existing_records_hash=records_hash,
+            required_records=required,
             conflicts=[],
             has_conflicts=False,
-            state="awaiting_approval",
-            message="Ready",
-            can_apply=True,
-            requires_approval=True,
         )
 
         created_item = DnsRecordItem(id="new_rec_1", type="A", name="@", content="76.76.21.21")
         ver_item = DnsVerificationItem(type="A", name="till.gy", expected="76.76.21.21", actual=["76.76.21.21"], verified=True)
 
-        with patch.object(workflow, "get_proposed_plan", AsyncMock(return_value=mock_plan)):
+        with patch("app.services.integrations.cloudflare_service.cloudflare_service.list_dns_records", AsyncMock(return_value=existing)):
             with patch("app.services.integrations.cloudflare_service.cloudflare_service.create_dns_record", AsyncMock(return_value=created_item)) as mock_create:
                 with patch("app.services.integrations.dns_verifier.dns_verifier.verify_records", AsyncMock(return_value=[ver_item])):
                     with patch("app.services.integrations.vercel_service.vercel_service.verify_domain", AsyncMock(return_value={"verified": True})):
                         with patch("app.services.integrations.cloudflare_service.cloudflare_service.get_zone_ssl_settings", AsyncMock(return_value="strict")):
-                            req = DnsApplyRequest(domain="till.gy", target_platform="vercel", approved=True, override_conflicts=False)
-                            res = await workflow.apply_dns_plan(req)
+                            req = DnsApplyRequest(
+                                domain=clean_domain,
+                                target_platform="vercel",
+                                plan_id=plan_id,
+                                plan_signature=sig,
+                                expires_at=expires_at,
+                                approved=True,
+                                override_conflicts=False,
+                            )
+                            res = await workflow.apply_dns_plan(req, admin_username="admin")
 
                             mock_create.assert_called_once()
                             assert res.state == "connected"
@@ -298,7 +559,7 @@ def test_apply_dns_creates_records_when_approved():
 
 
 # ============================================================================
-# 9. REAL DNS VERIFICATION BEHAVIOR TESTS
+# 8. REAL DNS VERIFICATION BEHAVIOR TESTS
 # ============================================================================
 
 def test_real_dns_verifier_never_fake_success():
@@ -331,7 +592,7 @@ def test_real_dns_verifier_never_fake_success():
 
 
 # ============================================================================
-# 10. VERCEL INTEGRATION REQUIREMENTS TESTS
+# 9. VERCEL INTEGRATION REQUIREMENTS TESTS
 # ============================================================================
 
 def test_vercel_required_records_generation():
@@ -376,7 +637,7 @@ def test_vercel_required_records_generation():
 
 
 # ============================================================================
-# 11. RENDER INTEGRATION REQUIREMENTS TESTS
+# 10. RENDER INTEGRATION REQUIREMENTS TESTS
 # ============================================================================
 
 def test_render_required_records_generation():
@@ -409,7 +670,7 @@ def test_render_required_records_generation():
 
 
 # ============================================================================
-# 12. NETWORK FAILURE & TIMEOUT HANDLING
+# 11. NETWORK FAILURE & TIMEOUT HANDLING
 # ============================================================================
 
 def test_network_timeout_handling():

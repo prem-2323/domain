@@ -215,6 +215,12 @@ export interface DnsConflict {
 }
 
 export interface ProposedDnsPlan {
+  plan_id?: string;
+  plan_version?: number;
+  created_at?: string;
+  expires_at?: string;
+  plan_signature?: string;
+  existing_records_hash?: string;
   domain: string;
   target_platform: 'vercel' | 'render';
   zone_id?: string;
@@ -235,6 +241,9 @@ export interface ProposedDnsPlan {
 export interface DnsApplyRequest {
   domain: string;
   target_platform: 'vercel' | 'render';
+  plan_id: string;
+  plan_signature: string;
+  expires_at: string;
   approved: boolean;
   override_conflicts?: boolean;
 }
