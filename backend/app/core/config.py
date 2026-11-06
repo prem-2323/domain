@@ -150,6 +150,53 @@ class Settings(BaseSettings):
     PORKBUN_API_KEY: Optional[str] = Field(default=None, repr=False, description="Porkbun API Key")
     PORKBUN_SECRET_API_KEY: Optional[str] = Field(default=None, repr=False, description="Porkbun Secret API Key")
 
+    # ====================================================================
+    # Cloudflare API Configuration
+    # ====================================================================
+    CLOUDFLARE_API_TOKEN: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="Cloudflare API Bearer Token with Zone:Read, DNS:Edit permissions"
+    )
+    CLOUDFLARE_ACCOUNT_ID: Optional[str] = Field(
+        default=None,
+        description="Cloudflare Account ID (optional, retrieved via API if omitted)"
+    )
+    CLOUDFLARE_DEFAULT_ZONE_ID: Optional[str] = Field(
+        default=None,
+        description="Default Cloudflare Zone ID for single-zone setups (optional)"
+    )
+
+    # ====================================================================
+    # Vercel API Configuration
+    # ====================================================================
+    VERCEL_API_TOKEN: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="Vercel API Bearer Token with Project domain permissions"
+    )
+    VERCEL_PROJECT_ID: Optional[str] = Field(
+        default=None,
+        description="Vercel Project ID or Project Name"
+    )
+    VERCEL_TEAM_ID: Optional[str] = Field(
+        default=None,
+        description="Vercel Team ID (optional)"
+    )
+
+    # ====================================================================
+    # Render API Configuration
+    # ====================================================================
+    RENDER_API_KEY: Optional[str] = Field(
+        default=None,
+        repr=False,
+        description="Render API Key (Bearer token)"
+    )
+    RENDER_SERVICE_ID: Optional[str] = Field(
+        default=None,
+        description="Render Service ID (e.g. srv-xxx) for custom domain linking"
+    )
+
     # Default DNS Settings
     DEFAULT_NAMESERVERS: List[str] = [
         "ns1.mastertools-dns.com",
@@ -216,6 +263,28 @@ class Settings(BaseSettings):
 
         return self
 
+    @property
+    def is_cloudflare_configured(self) -> bool:
+        return bool(self.CLOUDFLARE_API_TOKEN and self.CLOUDFLARE_API_TOKEN.strip())
+
+    @property
+    def is_vercel_configured(self) -> bool:
+        return bool(
+            self.VERCEL_API_TOKEN
+            and self.VERCEL_API_TOKEN.strip()
+            and self.VERCEL_PROJECT_ID
+            and self.VERCEL_PROJECT_ID.strip()
+        )
+
+    @property
+    def is_render_configured(self) -> bool:
+        return bool(
+            self.RENDER_API_KEY
+            and self.RENDER_API_KEY.strip()
+            and self.RENDER_SERVICE_ID
+            and self.RENDER_SERVICE_ID.strip()
+        )
+
     def is_provider_configured(self, provider_name: str) -> bool:
         """Checks if required credentials exist for a given provider."""
         provider = provider_name.lower()
@@ -256,6 +325,21 @@ class Settings(BaseSettings):
                 p for p in ["mock", "godaddy", "namecheap", "porkbun"]
                 if self.is_provider_configured(p)
             ],
+            "integrations": {
+                "cloudflare": {
+                    "configured": self.is_cloudflare_configured,
+                    "account_id_set": bool(self.CLOUDFLARE_ACCOUNT_ID),
+                    "default_zone_id_set": bool(self.CLOUDFLARE_DEFAULT_ZONE_ID),
+                },
+                "vercel": {
+                    "configured": self.is_vercel_configured,
+                    "project_id_set": bool(self.VERCEL_PROJECT_ID),
+                },
+                "render": {
+                    "configured": self.is_render_configured,
+                    "service_id_set": bool(self.RENDER_SERVICE_ID),
+                },
+            },
         }
 
 

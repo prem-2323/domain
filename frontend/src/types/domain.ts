@@ -170,3 +170,113 @@ export interface RegistrationRequestListResponse {
   total: number;
   requests: RegistrationRequestItem[];
 }
+
+export type IntegrationWorkflowState =
+  | 'not_connected'
+  | 'credentials_missing'
+  | 'zone_pending_activation'
+  | 'awaiting_nameserver_update'
+  | 'dns_conflict'
+  | 'awaiting_approval'
+  | 'provisioning'
+  | 'dns_verification_pending'
+  | 'connected'
+  | 'failed';
+
+export interface DnsRecordItem {
+  id?: string;
+  type: string;
+  name: string;
+  content: string;
+  ttl: number;
+  proxied: boolean;
+  purpose?: string;
+  comment?: string;
+}
+
+export interface CloudflareZoneInfo {
+  zone_id: string;
+  name: string;
+  status: string;
+  name_servers: string[];
+  original_name_servers?: string[];
+  paused: boolean;
+  ssl_status?: string;
+  account_id?: string;
+  account_name?: string;
+}
+
+export interface DnsConflict {
+  existing_record: DnsRecordItem;
+  proposed_record: DnsRecordItem;
+  conflict_type: string;
+  message: string;
+  requires_override: boolean;
+}
+
+export interface ProposedDnsPlan {
+  domain: string;
+  target_platform: 'vercel' | 'render';
+  zone_id?: string;
+  zone_name?: string;
+  zone_status?: string;
+  assigned_nameservers: string[];
+  is_zone_active: boolean;
+  required_records: DnsRecordItem[];
+  existing_records: DnsRecordItem[];
+  conflicts: DnsConflict[];
+  has_conflicts: boolean;
+  state: IntegrationWorkflowState;
+  message: string;
+  can_apply: boolean;
+  requires_approval: boolean;
+}
+
+export interface DnsApplyRequest {
+  domain: string;
+  target_platform: 'vercel' | 'render';
+  approved: boolean;
+  override_conflicts?: boolean;
+}
+
+export interface DnsVerificationItem {
+  type: string;
+  name: string;
+  expected: string;
+  actual: string[];
+  verified: boolean;
+  error?: string;
+}
+
+export interface IntegrationDeploymentStatus {
+  domain: string;
+  target_platform: 'vercel' | 'render';
+  state: IntegrationWorkflowState;
+  message: string;
+  zone_status?: string;
+  assigned_nameservers: string[];
+  nameserver_instructions?: string;
+  ssl_status?: string;
+  ssl_verified: boolean;
+  platform_verified: boolean;
+  records: DnsRecordItem[];
+  verification_items: DnsVerificationItem[];
+  conflicts: DnsConflict[];
+  last_checked_at: string;
+}
+
+export interface IntegrationConfigStatus {
+  cloudflare: {
+    configured: boolean;
+    account_id_set: boolean;
+    default_zone_id_set: boolean;
+  };
+  vercel: {
+    configured: boolean;
+    project_id_set: boolean;
+  };
+  render: {
+    configured: boolean;
+    service_id_set: boolean;
+  };
+}

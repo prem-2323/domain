@@ -655,3 +655,146 @@ export async function updateRegistrationRequest(
     500
   );
 }
+
+// ============================================================================
+// Real Cloudflare, Vercel & Render Integration Endpoints
+// ============================================================================
+
+import type {
+  IntegrationConfigStatus,
+  ProposedDnsPlan,
+  DnsApplyRequest,
+  IntegrationDeploymentStatus,
+  CloudflareZoneInfo,
+} from '../types/domain';
+
+export async function getIntegrationStatus(): Promise<IntegrationConfigStatus> {
+  const endpoints = getApiEndpoints('/api/integrations/status');
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        return (await res.json()) as IntegrationConfigStatus;
+      }
+    } catch {
+      // try next fallback endpoint if non-prod
+    }
+  }
+  return {
+    cloudflare: { configured: false, account_id_set: false, default_zone_id_set: false },
+    vercel: { configured: false, project_id_set: false },
+    render: { configured: false, service_id_set: false },
+  };
+}
+
+export async function getProposedDnsPlan(
+  domain: string,
+  target: 'vercel' | 'render'
+): Promise<ProposedDnsPlan> {
+  const endpoints = getApiEndpoints(
+    `/api/integrations/plan?domain=${encodeURIComponent(domain)}&target=${encodeURIComponent(target)}`
+  );
+
+  let lastError: Error | null = null;
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data) {
+        return data as ProposedDnsPlan;
+      }
+      if (data?.detail?.message) {
+        throw new RegistrationApiError(data.detail.message, res.status);
+      }
+    } catch (err) {
+      if (err instanceof RegistrationApiError) throw err;
+      lastError = err as Error;
+    }
+  }
+
+  throw new RegistrationApiError(
+    lastError?.message || `Failed to fetch DNS plan for '${domain}'.`,
+    500
+  );
+}
+
+export async function applyDnsPlan(
+  request: DnsApplyRequest
+): Promise<IntegrationDeploymentStatus> {
+  const endpoints = getApiEndpoints('/api/integrations/apply');
+
+  let lastError: Error | null = null;
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data) {
+        return data as IntegrationDeploymentStatus;
+      }
+      const errMsg =
+        data?.detail?.message ||
+        data?.message ||
+        `Failed to apply DNS records for '${request.domain}'.`;
+      throw new RegistrationApiError(errMsg, res.status);
+    } catch (err) {
+      if (err instanceof RegistrationApiError) throw err;
+      lastError = err as Error;
+    }
+  }
+
+  throw new RegistrationApiError(
+    lastError?.message || 'Could not connect to backend to apply DNS changes.',
+    500
+  );
+}
+
+export async function verifyDeployment(
+  domain: string,
+  target: 'vercel' | 'render'
+): Promise<IntegrationDeploymentStatus> {
+  const endpoints = getApiEndpoints(
+    `/api/integrations/verify?domain=${encodeURIComponent(domain)}&target=${encodeURIComponent(target)}`
+  );
+
+  let lastError: Error | null = null;
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url);
+      const data = await res.json().catch(() => null);
+      if (res.ok && data) {
+        return data as IntegrationDeploymentStatus;
+      }
+    } catch (err) {
+      lastError = err as Error;
+    }
+  }
+
+  throw new RegistrationApiError(
+    lastError?.message || `Failed to verify deployment for '${domain}'.`,
+    500
+  );
+}
+
+export async function getCloudflareZoneInfo(
+  domain: string
+): Promise<CloudflareZoneInfo | null> {
+  const endpoints = getApiEndpoints(
+    `/api/integrations/cloudflare/zone?domain=${encodeURIComponent(domain)}`
+  );
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        return (await res.json()) as CloudflareZoneInfo;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+}

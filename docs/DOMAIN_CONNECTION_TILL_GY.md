@@ -64,6 +64,29 @@ Once nameserver authority is delegated to Cloudflare:
   ["https://till.gy", "https://www.till.gy", "https://mastertools-domains.vercel.app"]
   ```
 
+### Step 6: Automated API Orchestration (Optional Backend Secrets)
+
+To enable zero-touch DNS orchestration through the FastAPI backend:
+
+1. **Cloudflare API Token (`CLOUDFLARE_API_TOKEN`)**:
+   - Create a Custom Token in Cloudflare Dashboard -> **My Profile** -> **API Tokens**.
+   - Minimum permissions:
+     - `Zone` -> `Zone` -> `Read`
+     - `Zone` -> `DNS` -> `Edit`
+     - `Zone` -> `SSL and Certificates` -> `Read`
+   - Zone Resources: Include `till.gy` (or All Zones in Account).
+   - Set on Render: `CLOUDFLARE_API_TOKEN=...`
+
+2. **Vercel API Token & Project ID (`VERCEL_API_TOKEN`, `VERCEL_PROJECT_ID`)**:
+   - Generate token in Vercel Dashboard -> **Account Settings** -> **Tokens**.
+   - Copy Project ID from Vercel Project Settings -> **General**.
+   - Set on Render: `VERCEL_API_TOKEN=...`, `VERCEL_PROJECT_ID=...`
+
+3. **Render API Key & Service ID (`RENDER_API_KEY`, `RENDER_SERVICE_ID`)**:
+   - Generate API key in Render Dashboard -> **Account Settings** -> **API Keys**.
+   - Copy Service ID from Render Service Settings (starts with `srv-...`).
+   - Set on Render: `RENDER_API_KEY=...`, `RENDER_SERVICE_ID=...`
+
 #### Vercel Frontend Environment:
 - `VITE_API_BASE_URL`:
   ```

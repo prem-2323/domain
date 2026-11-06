@@ -10,6 +10,7 @@ from app.api.registrations import (
     router as registrations_router,
     admin_router as admin_operations_router,
 )
+from app.api.integrations import router as integrations_router
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -79,6 +80,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(domains_router)
 app.include_router(registrations_router)
 app.include_router(admin_operations_router)
+app.include_router(integrations_router, prefix="/api/integrations", tags=["Integrations & Cloud Bridge"])
 
 
 @app.get("/")

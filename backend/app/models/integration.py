@@ -1,0 +1,113 @@
+from typing import List, Optional, Literal, Dict, Any
+from pydantic import BaseModel, Field
+
+
+WorkflowState = Literal[
+    "not_connected",
+    "credentials_missing",
+    "zone_pending_activation",
+    "awaiting_nameserver_update",
+    "dns_conflict",
+    "awaiting_approval",
+    "provisioning",
+    "dns_verification_pending",
+    "connected",
+    "failed",
+]
+
+
+class DnsRecordItem(BaseModel):
+    id: Optional[str] = Field(default=None, description="Cloudflare DNS record ID")
+    type: str = Field(..., description="Record type: A, CNAME, TXT, ALIAS, etc.")
+    name: str = Field(..., description="Record name/host (e.g. @ or www or subdomain)")
+    content: str = Field(..., description="Record destination value / target IP or hostname")
+    ttl: int = Field(default=60, description="TTL in seconds (default 60s)")
+    proxied: bool = Field(default=False, description="Whether Cloudflare proxy is enabled")
+    purpose: Optional[str] = Field(default=None, description="Human-readable description of record purpose")
+    comment: Optional[str] = Field(default=None, description="Cloudflare record comment")
+
+
+class CloudflareZoneInfo(BaseModel):
+    zone_id: str
+    name: str
+    status: str = Field(..., description="Cloudflare zone status: active, pending, etc.")
+    name_servers: List[str] = Field(default_factory=list, description="Assigned Cloudflare nameservers for this zone")
+    original_name_servers: Optional[List[str]] = None
+    paused: bool = False
+    ssl_status: Optional[str] = Field(default=None, description="Cloudflare SSL mode: full, strict, flexible, off")
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
+
+
+class DnsConflict(BaseModel):
+    existing_record: DnsRecordItem
+    proposed_record: DnsRecordItem
+    conflict_type: str = Field(
+        ...,
+        description="Reason for conflict: e.g. existing_record_differs, cname_coexists_with_other"
+    )
+    message: str = Field(..., description="Detailed explanation of the DNS conflict")
+    requires_override: bool = True
+
+
+class ProposedDnsPlan(BaseModel):
+    domain: str
+    target_platform: Literal["vercel", "render"]
+    zone_id: Optional[str] = None
+    zone_name: Optional[str] = None
+    zone_status: Optional[str] = None
+    assigned_nameservers: List[str] = Field(default_factory=list)
+    is_zone_active: bool = False
+    required_records: List[DnsRecordItem] = Field(default_factory=list)
+    existing_records: List[DnsRecordItem] = Field(default_factory=list)
+    conflicts: List[DnsConflict] = Field(default_factory=list)
+    has_conflicts: bool = False
+    state: WorkflowState
+    message: str
+    can_apply: bool = False
+    requires_approval: bool = True
+
+
+class DnsApplyRequest(BaseModel):
+    domain: str = Field(..., description="Target domain name to configure")
+    target_platform: Literal["vercel", "render"] = Field(..., description="Destination hosting platform")
+    approved: bool = Field(
+        default=False,
+        description="Explicit user/admin approval to create/update DNS records"
+    )
+    override_conflicts: bool = Field(
+        default=False,
+        description="Explicit approval to override existing conflicting DNS records"
+    )
+
+
+class DnsVerificationItem(BaseModel):
+    type: str
+    name: str
+    expected: str
+    actual: List[str] = Field(default_factory=list)
+    verified: bool = False
+    error: Optional[str] = None
+
+
+class IntegrationDeploymentStatus(BaseModel):
+    domain: str
+    target_platform: Literal["vercel", "render"]
+    state: WorkflowState
+    message: str
+    zone_status: Optional[str] = None
+    assigned_nameservers: List[str] = Field(default_factory=list)
+    nameserver_instructions: Optional[str] = None
+    ssl_status: Optional[str] = None
+    ssl_verified: bool = False
+    platform_verified: bool = False
+    records: List[DnsRecordItem] = Field(default_factory=list)
+    verification_items: List[DnsVerificationItem] = Field(default_factory=list)
+    conflicts: List[DnsConflict] = Field(default_factory=list)
+    last_checked_at: str
+
+
+class IntegrationConfigStatus(BaseModel):
+    cloudflare: Dict[str, Any]
+    vercel: Dict[str, Any]
+    render: Dict[str, Any]

@@ -28,3 +28,13 @@ services:
         value: /var/data
       - key: CORS_ORIGINS
         value: '["https://mastertools-domains.vercel.app","https://till.gy","https://www.till.gy"]'
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: VERCEL_API_TOKEN
+        sync: false
+      - key: VERCEL_PROJECT_ID
+        sync: false
+      - key: RENDER_API_KEY
+        sync: false
+      - key: RENDER_SERVICE_ID
+        sync: false
