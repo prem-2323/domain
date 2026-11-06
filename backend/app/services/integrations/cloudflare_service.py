@@ -25,7 +25,7 @@ def is_protected_record(record: DnsRecordItem) -> bool:
             return True
         if "_dmarc" in name_lower or "v=dmarc1" in content_lower:
             return True
-        if "domainkey" in name_lower:
+        if "domainkey" in name_lower or "v=dkim1" in content_lower:
             return True
         if "google-site-verification" in content_lower:
             return True
@@ -379,8 +379,16 @@ class CloudflareService:
                 res = await client.delete(url, headers=self._get_headers())
                 if res.status_code == 200:
                     data = res.json()
-                    return bool(data.get("success"))
-                return False
+                    if data.get("success"):
+                        return True
+                    err_msg = data.get("errors", [{}])[0].get("message", "Cloudflare deletion unsuccessful")
+                    raise CloudflareApiError(f"Failed to delete DNS record: {err_msg}", status_code=502)
+                err_msg = f"HTTP {res.status_code}"
+                try:
+                    err_msg = res.json().get("errors", [{}])[0].get("message", err_msg)
+                except Exception:
+                    pass
+                raise CloudflareApiError(f"Failed to delete DNS record: {err_msg}", status_code=res.status_code)
         except httpx.RequestError as e:
             raise CloudflareApiError(f"Cloudflare record deletion network error: {type(e).__name__}", status_code=502)
 

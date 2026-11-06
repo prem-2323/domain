@@ -67,7 +67,11 @@ def generate_plan_signature(
 
 
 class ServerDnsPlanStore:
-    """Persistent SQLite store for server-side generated DNS plans."""
+    """
+    Persistent SQLite store for server-side generated DNS plans.
+    Enforces atomic state transitions (pending -> applying -> completed / failed)
+    to prevent concurrent execution and replay attacks.
+    """
 
     @classmethod
     def _init_table(cls) -> None:
@@ -87,11 +91,30 @@ class ServerDnsPlanStore:
                     required_records_json TEXT NOT NULL,
                     conflicts_json TEXT NOT NULL,
                     has_conflicts INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    claimed_at TEXT,
+                    claimed_by TEXT,
+                    completed_at TEXT,
+                    error_message TEXT,
                     applied INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            # Upgrade existing table schema if columns are missing
+            cursor = conn.execute("PRAGMA table_info(server_dns_plans)")
+            existing_cols = {row["name"] for row in cursor.fetchall()}
+            for col_name, col_type in [
+                ("status", "TEXT NOT NULL DEFAULT 'pending'"),
+                ("claimed_at", "TEXT"),
+                ("claimed_by", "TEXT"),
+                ("completed_at", "TEXT"),
+                ("error_message", "TEXT"),
+            ]:
+                if col_name not in existing_cols:
+                    conn.execute(f"ALTER TABLE server_dns_plans ADD COLUMN {col_name} {col_type}")
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_plan_domain ON server_dns_plans(domain)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_plan_status ON server_dns_plans(status)")
             conn.commit()
 
     @classmethod
@@ -119,8 +142,9 @@ class ServerDnsPlanStore:
                 INSERT OR REPLACE INTO server_dns_plans (
                     plan_id, domain, target_platform, zone_id, plan_version,
                     created_at, expires_at, plan_signature, existing_records_hash,
-                    required_records_json, conflicts_json, has_conflicts, applied
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    required_records_json, conflicts_json, has_conflicts,
+                    status, claimed_at, claimed_by, completed_at, error_message, applied
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL, 0)
                 """,
                 (
                     plan_id,
@@ -153,12 +177,84 @@ class ServerDnsPlanStore:
             return dict(row)
 
     @classmethod
-    def mark_applied(cls, plan_id: str) -> None:
+    def atomic_claim_plan(
+        cls,
+        plan_id: str,
+        admin_username: str,
+    ) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
+        """
+        Atomically claims a DNS plan for application using a conditional UPDATE.
+        Ensures a plan can transition from 'pending' to 'applying' exactly once.
+        Returns:
+            (True, "CLAIMED", plan_data) on success.
+            (False, "ALREADY_APPLIED", plan_data) if already completed.
+            (False, "ALREADY_CLAIMED", plan_data) if currently being applied.
+            (False, "FAILED", plan_data) if previously failed.
+            (False, "NOT_FOUND", None) if plan does not exist.
+        """
         cls._init_table()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with RegistrationService._get_connection() as conn:
+            # Single conditional atomic update
+            cursor = conn.execute(
+                """
+                UPDATE server_dns_plans
+                SET status = 'applying', claimed_at = ?, claimed_by = ?
+                WHERE plan_id = ? AND status = 'pending' AND applied = 0
+                """,
+                (now_iso, admin_username, plan_id),
+            )
+            conn.commit()
+
+            if cursor.rowcount == 1:
+                cur_plan = conn.execute("SELECT * FROM server_dns_plans WHERE plan_id = ?", (plan_id,))
+                row = cur_plan.fetchone()
+                return True, "CLAIMED", dict(row) if row else None
+
+            # If rowcount == 0, find out why to return precise status
+            cur_check = conn.execute("SELECT * FROM server_dns_plans WHERE plan_id = ?", (plan_id,))
+            row = cur_check.fetchone()
+            if not row:
+                return False, "NOT_FOUND", None
+
+            data = dict(row)
+            if data["applied"] == 1 or data.get("status") == "completed":
+                return False, "ALREADY_APPLIED", data
+            elif data.get("status") == "applying":
+                return False, "ALREADY_CLAIMED", data
+            elif data.get("status") == "failed":
+                return False, "FAILED", data
+            return False, "NOT_PENDING", data
+
+    @classmethod
+    def mark_completed(cls, plan_id: str) -> None:
+        """Marks plan as completed and applied."""
+        cls._init_table()
+        now_iso = datetime.now(timezone.utc).isoformat()
         with RegistrationService._get_connection() as conn:
             conn.execute(
-                "UPDATE server_dns_plans SET applied = 1 WHERE plan_id = ?",
-                (plan_id,),
+                """
+                UPDATE server_dns_plans
+                SET status = 'completed', applied = 1, completed_at = ?
+                WHERE plan_id = ?
+                """,
+                (now_iso, plan_id),
+            )
+            conn.commit()
+
+    @classmethod
+    def mark_failed(cls, plan_id: str, error_message: str) -> None:
+        """Marks plan as failed and records the error message."""
+        cls._init_table()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with RegistrationService._get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE server_dns_plans
+                SET status = 'failed', completed_at = ?, error_message = ?
+                WHERE plan_id = ?
+                """,
+                (now_iso, error_message, plan_id),
             )
             conn.commit()
 
@@ -478,8 +574,9 @@ class DnsWorkflowService:
     ) -> IntegrationDeploymentStatus:
         """
         Applies proposed DNS changes to Cloudflare only after authenticated administrator approval.
-        Enforces plan signature integrity, plan expiration check, drift detection, and conflict override.
-        Preserves protected records and records an SQLite audit trail for every change.
+        Enforces plan signature integrity, authoritative server-stored expiration check,
+        atomic plan claiming (preventing race conditions and replays), drift detection,
+        conflict overrides, and audit trails.
         """
         now_dt = datetime.now(timezone.utc)
         now = now_dt.isoformat()
@@ -502,24 +599,7 @@ class DnsWorkflowService:
                 },
             )
 
-        # 2. Check Plan Expiration
-        try:
-            expires_dt = datetime.fromisoformat(request.expires_at.replace("Z", "+00:00"))
-            if expires_dt < now_dt:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": "PLAN_EXPIRED",
-                        "message": "The DNS plan has expired. Please inspect and approve a new plan.",
-                    },
-                )
-        except (ValueError, TypeError):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"error": "PLAN_EXPIRED", "message": "Invalid or expired plan timestamp format."},
-            )
-
-        # 3. Retrieve Server-Side Plan
+        # 2. Retrieve Server-Side Plan
         stored_plan = ServerDnsPlanStore.get_plan(request.plan_id)
         if not stored_plan:
             raise HTTPException(
@@ -527,11 +607,52 @@ class DnsWorkflowService:
                 detail={"error": "PLAN_TAMPERED", "message": "DNS plan ID is unrecognized, expired, or modified."},
             )
 
-        if stored_plan["applied"]:
+        # 3. Server-side Plan Expiration Check & Mismatch Validation
+        # Never trust client-provided expiration as authoritative: use stored expiration as source of truth.
+        try:
+            req_expires_dt = datetime.fromisoformat(request.expires_at.replace("Z", "+00:00"))
+            if req_expires_dt.tzinfo is None:
+                req_expires_dt = req_expires_dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError, AttributeError):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"error": "PLAN_ALREADY_APPLIED", "message": "This DNS plan has already been executed."},
+                detail={"error": "PLAN_TAMPERED", "message": "Invalid request expiration timestamp format."},
             )
+
+        try:
+            stored_expires_dt = datetime.fromisoformat(stored_plan["expires_at"].replace("Z", "+00:00"))
+            if stored_expires_dt.tzinfo is None:
+                stored_expires_dt = stored_expires_dt.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError, AttributeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "PLAN_TAMPERED", "message": "Invalid stored plan expiration timestamp format."},
+            )
+
+        # Reject if request expiration differs from server-stored expiration (tampering detection)
+        if (
+            request.expires_at.strip() != stored_plan["expires_at"].strip()
+            or abs((req_expires_dt - stored_expires_dt).total_seconds()) > 0
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "PLAN_TAMPERED",
+                    "message": "Submitted plan expiration does not match authoritative server-stored expiration.",
+                },
+            )
+
+        # Reject if either stored plan or request timestamp is expired
+        if stored_expires_dt < now_dt or req_expires_dt < now_dt:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "PLAN_EXPIRED",
+                    "message": "The DNS plan has expired. Please inspect and approve a new plan.",
+                },
+            )
+
+        # 4. Validate Domain and Platform Match Stored Plan
         if (
             stored_plan["domain"] != clean_domain
             or stored_plan["target_platform"] != request.target_platform.lower()
@@ -540,37 +661,36 @@ class DnsWorkflowService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error": "PLAN_TAMPERED", "message": "Plan parameters do not match server record."},
             )
+
+        # 5. Cryptographic Signature Verification
         if not secrets.compare_digest(request.plan_signature, stored_plan["plan_signature"]):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={"error": "PLAN_TAMPERED", "message": "DNS plan cryptographic signature mismatch."},
             )
-        zone_id = stored_plan["zone_id"]
-        required_records = [DnsRecordItem(**r) for r in json.loads(stored_plan["required_records_json"])]
-        conflicts = [DnsConflict(**c) for c in json.loads(stored_plan["conflicts_json"])]
-        has_conflicts = bool(stored_plan["has_conflicts"])
-        expected_drift_hash = stored_plan["existing_records_hash"]
 
-        # 4. Immediate Pre-Apply Re-Check of Cloudflare DNS Records (DNS Drift Detection)
-        try:
-            current_existing_records = await cloudflare_service.list_dns_records(zone_id)
-        except CloudflareApiError as e:
+        # 6. Verify Execution Status Before Claim
+        if stored_plan["applied"] == 1 or stored_plan.get("status") == "completed":
             raise HTTPException(
-                status_code=e.status_code,
-                detail={"error": "CLOUDFLARE_LOOKUP_FAILED", "message": e.message},
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"error": "PLAN_ALREADY_APPLIED", "message": "This DNS plan has already been executed."},
             )
-
-        current_drift_hash = compute_records_drift_hash(current_existing_records)
-        if current_drift_hash != expected_drift_hash:
+        if stored_plan.get("status") == "applying":
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
+                detail={"error": "PLAN_ALREADY_CLAIMED", "message": "This DNS plan is currently being applied by another request."},
+            )
+        if stored_plan.get("status") == "failed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
-                    "error": "DNS_DRIFT_DETECTED",
-                    "message": "Existing DNS records in Cloudflare have changed since plan creation. Please review the updated plan.",
+                    "error": "PLAN_ALREADY_APPLIED",
+                    "message": f"This DNS plan previously failed execution: {stored_plan.get('error_message')}. Please inspect a new plan.",
                 },
             )
 
-        # 5. Check Conflict Overrides Requirement
+        # 7. Check Conflict Overrides Requirement
+        has_conflicts = bool(stored_plan["has_conflicts"])
         if has_conflicts and not request.override_conflicts:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -580,7 +700,8 @@ class DnsWorkflowService:
                 },
             )
 
-        # 6. Verify Protected Records Integrity (MX, SPF, DKIM, CAA, etc.)
+        # 8. Verify Protected Records Integrity (MX, SPF, DKIM, CAA, etc.)
+        conflicts = [DnsConflict(**c) for c in json.loads(stored_plan["conflicts_json"])]
         for conf in conflicts:
             if is_protected_record(conf.existing_record):
                 raise HTTPException(
@@ -594,7 +715,59 @@ class DnsWorkflowService:
                     },
                 )
 
-        # 7. Apply Changes Safely to Cloudflare
+        # 9. ATOMIC PLAN CLAIM (Conditional UPDATE preventing concurrent execution)
+        claimed, reason, claimed_data = ServerDnsPlanStore.atomic_claim_plan(
+            request.plan_id, admin_username=admin_username
+        )
+        if not claimed:
+            if reason == "ALREADY_CLAIMED":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "error": "PLAN_ALREADY_CLAIMED",
+                        "message": "This DNS plan is currently being executed by another concurrent request.",
+                    },
+                )
+            elif reason == "ALREADY_APPLIED":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "PLAN_ALREADY_APPLIED", "message": "This DNS plan has already been executed."},
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"error": "PLAN_ALREADY_APPLIED", "message": f"This DNS plan cannot be applied ({reason})."},
+                )
+
+        zone_id = stored_plan["zone_id"]
+        required_records = [DnsRecordItem(**r) for r in json.loads(stored_plan["required_records_json"])]
+        expected_drift_hash = stored_plan["existing_records_hash"]
+
+        # 10. Pre-Apply Re-Check of Cloudflare DNS Records (DNS Drift Detection)
+        try:
+            current_existing_records = await cloudflare_service.list_dns_records(zone_id)
+        except CloudflareApiError as e:
+            ServerDnsPlanStore.mark_failed(request.plan_id, error_message=f"Cloudflare DNS lookup failed: {e.message}")
+            raise HTTPException(
+                status_code=e.status_code,
+                detail={"error": "CLOUDFLARE_LOOKUP_FAILED", "message": e.message},
+            )
+
+        current_drift_hash = compute_records_drift_hash(current_existing_records)
+        if current_drift_hash != expected_drift_hash:
+            ServerDnsPlanStore.mark_failed(
+                request.plan_id,
+                error_message="DNS drift detected: existing records changed in Cloudflare prior to apply",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "DNS_DRIFT_DETECTED",
+                    "message": "Existing DNS records in Cloudflare have changed since plan creation. Please review the updated plan.",
+                },
+            )
+
+        # 11. Apply Changes Safely to Cloudflare
         logger.info(f"Applying approved DNS changes for {clean_domain} in zone {zone_id} by admin '{admin_username}'")
         applied_records: List[DnsRecordItem] = []
 
@@ -605,11 +778,16 @@ class DnsWorkflowService:
                     if conf.existing_record.id:
                         if conf.conflict_type == "incompatible_record_type":
                             # Delete incompatible record type to satisfy RFC 1912 CNAME exclusivity
-                            await cloudflare_service.delete_dns_record(
+                            deleted = await cloudflare_service.delete_dns_record(
                                 zone_id,
                                 conf.existing_record.id,
                                 record=conf.existing_record,
                             )
+                            if not deleted:
+                                raise CloudflareApiError(
+                                    f"Cloudflare failed to delete conflicting record {conf.existing_record.name} ({conf.existing_record.type})",
+                                    status_code=502,
+                                )
                             DnsAuditManager.record_change(
                                 admin_username=admin_username,
                                 action="DELETE_CONFLICTING_RECORD",
@@ -676,18 +854,21 @@ class DnsWorkflowService:
                         details="Created required hosting DNS record",
                     )
 
-            # Mark plan applied
-            if stored_plan:
-                ServerDnsPlanStore.mark_applied(request.plan_id)
+            # Mark plan successfully completed
+            ServerDnsPlanStore.mark_completed(request.plan_id)
 
         except CloudflareApiError as e:
+            ServerDnsPlanStore.mark_failed(request.plan_id, error_message=e.message)
             raise HTTPException(status_code=e.status_code, detail={"error": "CLOUDFLARE_ERROR", "message": e.message})
+        except Exception as e:
+            ServerDnsPlanStore.mark_failed(request.plan_id, error_message=str(e))
+            raise
 
-        # Step 8: Verify DNS records via authoritative DNS query
+        # Step 12: Verify DNS records via authoritative DNS query
         verification_items = await dns_verifier.verify_records(clean_domain, required_records)
         all_dns_verified = all(v.verified for v in verification_items)
 
-        # Step 9: Trigger platform verification
+        # Step 13: Trigger platform verification
         platform_verified = False
         try:
             if request.target_platform == "vercel":

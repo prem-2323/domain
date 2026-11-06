@@ -300,17 +300,93 @@ def test_tampered_plan_signature_rejected_400(client: TestClient, admin_headers:
     assert data["detail"]["error"] == "PLAN_TAMPERED"
 
 
-def test_expired_plan_rejected_400(client: TestClient, admin_headers: dict):
+def test_client_changes_expiration_to_future_timestamp_rejected_400(client: TestClient, admin_headers: dict):
     """
-    Verifies that a plan with an expired timestamp is rejected with HTTP 400 PLAN_EXPIRED.
+    Critical Fix 1: Verifies that if a client tampers with expires_at to extend it to a future time,
+    the request is rejected with HTTP 400 and PLAN_TAMPERED because it does not match authoritative stored plan.
     """
-    past_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    workflow = DnsWorkflowService()
+    clean_domain = "till.gy"
+    zone_id = "zone_cf_test"
+    required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+    existing = []
+
+    plan_id = "plan_future_tamper_123"
+    original_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    records_hash = compute_records_drift_hash(existing)
+    sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, original_expires_at, records_hash)
+
+    from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+    ServerDnsPlanStore.save_plan(
+        plan_id=plan_id,
+        domain=clean_domain,
+        target_platform="vercel",
+        zone_id=zone_id,
+        plan_version=1,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        expires_at=original_expires_at,
+        plan_signature=sig,
+        existing_records_hash=records_hash,
+        required_records=required,
+        conflicts=[],
+        has_conflicts=False,
+    )
+
+    # Client attempts to bypass expiration by submitting a 2-hour future timestamp
+    tampered_future_expires = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
     payload = {
-        "domain": "till.gy",
+        "domain": clean_domain,
         "target_platform": "vercel",
-        "plan_id": "plan_expired_123",
-        "plan_signature": "signature_abc",
-        "expires_at": past_time,
+        "plan_id": plan_id,
+        "plan_signature": sig,
+        "expires_at": tampered_future_expires,
+        "approved": True,
+        "override_conflicts": False,
+    }
+    res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
+    assert res.status_code == 400
+    data = res.json()
+    assert data["detail"]["error"] == "PLAN_TAMPERED"
+    assert "does not match authoritative server-stored expiration" in data["detail"]["message"].lower()
+
+
+def test_stored_plan_is_expired_rejected_400(client: TestClient, admin_headers: dict):
+    """
+    Critical Fix 1: Verifies that if the server-stored plan has expired,
+    it is rejected with HTTP 400 and PLAN_EXPIRED, even if client passes matching expired time.
+    """
+    clean_domain = "till.gy"
+    zone_id = "zone_cf_test"
+    required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+    existing = []
+
+    plan_id = "plan_stored_expired_123"
+    expired_time = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    records_hash = compute_records_drift_hash(existing)
+    sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, expired_time, records_hash)
+
+    from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+    ServerDnsPlanStore.save_plan(
+        plan_id=plan_id,
+        domain=clean_domain,
+        target_platform="vercel",
+        zone_id=zone_id,
+        plan_version=1,
+        created_at=(datetime.now(timezone.utc) - timedelta(minutes=25)).isoformat(),
+        expires_at=expired_time,
+        plan_signature=sig,
+        existing_records_hash=records_hash,
+        required_records=required,
+        conflicts=[],
+        has_conflicts=False,
+    )
+
+    payload = {
+        "domain": clean_domain,
+        "target_platform": "vercel",
+        "plan_id": plan_id,
+        "plan_signature": sig,
+        "expires_at": expired_time,
         "approved": True,
         "override_conflicts": False,
     }
@@ -318,6 +394,369 @@ def test_expired_plan_rejected_400(client: TestClient, admin_headers: dict):
     assert res.status_code == 400
     data = res.json()
     assert data["detail"]["error"] == "PLAN_EXPIRED"
+
+
+def test_request_expiration_differs_from_stored_rejected_400(client: TestClient, admin_headers: dict):
+    """
+    Critical Fix 1: Verifies that any difference between request expiration and stored expiration
+    is rejected with HTTP 400 PLAN_TAMPERED.
+    """
+    clean_domain = "till.gy"
+    zone_id = "zone_cf_test"
+    required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+    existing = []
+
+    plan_id = "plan_diff_expires_123"
+    t1 = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    records_hash = compute_records_drift_hash(existing)
+    sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, t1, records_hash)
+
+    from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+    ServerDnsPlanStore.save_plan(
+        plan_id=plan_id,
+        domain=clean_domain,
+        target_platform="vercel",
+        zone_id=zone_id,
+        plan_version=1,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        expires_at=t1,
+        plan_signature=sig,
+        existing_records_hash=records_hash,
+        required_records=required,
+        conflicts=[],
+        has_conflicts=False,
+    )
+
+    t2 = (datetime.now(timezone.utc) + timedelta(minutes=12)).isoformat()
+    payload = {
+        "domain": clean_domain,
+        "target_platform": "vercel",
+        "plan_id": plan_id,
+        "plan_signature": sig,
+        "expires_at": t2,
+        "approved": True,
+        "override_conflicts": False,
+    }
+    res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
+    assert res.status_code == 400
+    data = res.json()
+    assert data["detail"]["error"] == "PLAN_TAMPERED"
+
+
+def test_valid_unexpired_plan_is_accepted(client: TestClient, admin_headers: dict):
+    """
+    Critical Fix 1: Verifies that a valid, unexpired plan matching server records is accepted.
+    """
+    clean_domain = "till.gy"
+    zone_id = "zone_cf_test"
+    required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+    existing = []
+
+    plan_id = "plan_valid_accept_123"
+    valid_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    records_hash = compute_records_drift_hash(existing)
+    sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, valid_expires_at, records_hash)
+
+    from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+    ServerDnsPlanStore.save_plan(
+        plan_id=plan_id,
+        domain=clean_domain,
+        target_platform="vercel",
+        zone_id=zone_id,
+        plan_version=1,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        expires_at=valid_expires_at,
+        plan_signature=sig,
+        existing_records_hash=records_hash,
+        required_records=required,
+        conflicts=[],
+        has_conflicts=False,
+    )
+
+    created_item = DnsRecordItem(id="new_rec_1", type="A", name="@", content="76.76.21.21")
+    ver_item = DnsVerificationItem(type="A", name="till.gy", expected="76.76.21.21", actual=["76.76.21.21"], verified=True)
+
+    with patch("app.services.integrations.cloudflare_service.cloudflare_service.list_dns_records", AsyncMock(return_value=existing)):
+        with patch("app.services.integrations.cloudflare_service.cloudflare_service.create_dns_record", AsyncMock(return_value=created_item)):
+            with patch("app.services.integrations.dns_verifier.dns_verifier.verify_records", AsyncMock(return_value=[ver_item])):
+                with patch("app.services.integrations.vercel_service.vercel_service.verify_domain", AsyncMock(return_value={"verified": True})):
+                    with patch("app.services.integrations.cloudflare_service.cloudflare_service.get_zone_ssl_settings", AsyncMock(return_value="strict")):
+                        payload = {
+                            "domain": clean_domain,
+                            "target_platform": "vercel",
+                            "plan_id": plan_id,
+                            "plan_signature": sig,
+                            "expires_at": valid_expires_at,
+                            "approved": True,
+                            "override_conflicts": False,
+                        }
+                        res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
+                        assert res.status_code == 200
+                        data = res.json()
+                        assert data["state"] == "connected"
+
+
+# ============================================================================
+# 5B. CONCURRENT & REPLAY DNS EXECUTION PREVENTION TESTS (REQUIREMENT 2)
+# ============================================================================
+
+def test_two_concurrent_requests_cannot_claim_same_plan():
+    """
+    High Fix 2: Verifies that ServerDnsPlanStore.atomic_claim_plan allows exactly ONE
+    request to transition a plan from pending to applying. The concurrent request is rejected.
+    """
+    from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+    plan_id = "plan_atomic_claim_test"
+    now_dt = datetime.now(timezone.utc)
+    ServerDnsPlanStore.save_plan(
+        plan_id=plan_id,
+        domain="till.gy",
+        target_platform="vercel",
+        zone_id="zone_cf_1",
+        plan_version=1,
+        created_at=now_dt.isoformat(),
+        expires_at=(now_dt + timedelta(minutes=15)).isoformat(),
+        plan_signature="sig_atomic",
+        existing_records_hash="hash_atomic",
+        required_records=[],
+        conflicts=[],
+        has_conflicts=False,
+    )
+
+    # First request claims plan
+    claimed1, reason1, plan_data1 = ServerDnsPlanStore.atomic_claim_plan(plan_id, admin_username="admin_alice")
+    assert claimed1 is True
+    assert reason1 == "CLAIMED"
+    assert plan_data1["status"] == "applying"
+    assert plan_data1["claimed_by"] == "admin_alice"
+
+    # Second concurrent request tries to claim the same plan
+    claimed2, reason2, plan_data2 = ServerDnsPlanStore.atomic_claim_plan(plan_id, admin_username="admin_bob")
+    assert claimed2 is False
+    assert reason2 == "ALREADY_CLAIMED"
+    assert plan_data2["status"] == "applying"
+    assert plan_data2["claimed_by"] == "admin_alice"
+
+
+def test_replaying_applied_plan_is_rejected_400(client: TestClient, admin_headers: dict):
+    """
+    High Fix 2: Verifies that attempting to replay an already completed plan
+    is rejected with HTTP 400 and PLAN_ALREADY_APPLIED.
+    """
+    clean_domain = "till.gy"
+    zone_id = "zone_cf_test"
+    plan_id = "plan_replay_test_123"
+    valid_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    records_hash = compute_records_drift_hash([])
+    sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, [], valid_expires_at, records_hash)
+
+    from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+    ServerDnsPlanStore.save_plan(
+        plan_id=plan_id,
+        domain=clean_domain,
+        target_platform="vercel",
+        zone_id=zone_id,
+        plan_version=1,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        expires_at=valid_expires_at,
+        plan_signature=sig,
+        existing_records_hash=records_hash,
+        required_records=[],
+        conflicts=[],
+        has_conflicts=False,
+    )
+
+    # Mark as completed
+    ServerDnsPlanStore.mark_completed(plan_id)
+
+    payload = {
+        "domain": clean_domain,
+        "target_platform": "vercel",
+        "plan_id": plan_id,
+        "plan_signature": sig,
+        "expires_at": valid_expires_at,
+        "approved": True,
+        "override_conflicts": False,
+    }
+    res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
+    assert res.status_code == 400
+    data = res.json()
+    assert data["detail"]["error"] == "PLAN_ALREADY_APPLIED"
+
+
+def test_failed_cloudflare_operation_recorded_correctly():
+    """
+    High Fix 2: Verifies that a failed Cloudflare operation sets status='failed'
+    and records the exact error message, preventing ambiguous state.
+    """
+    async def _test():
+        workflow = DnsWorkflowService()
+        clean_domain = "till.gy"
+        zone_id = "zone_cf_test"
+        required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+        existing = []
+
+        plan_id = "plan_failed_cf_test"
+        valid_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        records_hash = compute_records_drift_hash(existing)
+        sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, valid_expires_at, records_hash)
+
+        from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+        ServerDnsPlanStore.save_plan(
+            plan_id=plan_id,
+            domain=clean_domain,
+            target_platform="vercel",
+            zone_id=zone_id,
+            plan_version=1,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            expires_at=valid_expires_at,
+            plan_signature=sig,
+            existing_records_hash=records_hash,
+            required_records=required,
+            conflicts=[],
+            has_conflicts=False,
+        )
+
+        with patch("app.services.integrations.cloudflare_service.cloudflare_service.list_dns_records", AsyncMock(return_value=existing)):
+            with patch(
+                "app.services.integrations.cloudflare_service.cloudflare_service.create_dns_record",
+                AsyncMock(side_effect=CloudflareApiError("Zone quota limit reached", status_code=502)),
+            ):
+                req = DnsApplyRequest(
+                    domain=clean_domain,
+                    target_platform="vercel",
+                    plan_id=plan_id,
+                    plan_signature=sig,
+                    expires_at=valid_expires_at,
+                    approved=True,
+                    override_conflicts=False,
+                )
+                with pytest.raises(Exception) as exc_info:
+                    await workflow.apply_dns_plan(req, admin_username="admin")
+                assert exc_info.value.status_code == 502
+                assert exc_info.value.detail["error"] == "CLOUDFLARE_ERROR"
+
+        # Check recorded status in SQLite store
+        plan_in_db = ServerDnsPlanStore.get_plan(plan_id)
+        assert plan_in_db["status"] == "failed"
+        assert "Zone quota limit reached" in plan_in_db["error_message"]
+
+    asyncio.run(_test())
+
+
+def test_only_one_request_can_perform_dns_writes(client: TestClient, admin_headers: dict):
+    """
+    High Fix 2: Verifies that if one request has claimed a plan ('applying'),
+    a concurrent request receives HTTP 409 PLAN_ALREADY_CLAIMED without making DNS writes.
+    """
+    clean_domain = "till.gy"
+    zone_id = "zone_cf_test"
+    required = [DnsRecordItem(type="A", name="@", content="76.76.21.21")]
+    existing = []
+
+    plan_id = "plan_concurrent_writes_test"
+    valid_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    records_hash = compute_records_drift_hash(existing)
+    sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, valid_expires_at, records_hash)
+
+    from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+    ServerDnsPlanStore.save_plan(
+        plan_id=plan_id,
+        domain=clean_domain,
+        target_platform="vercel",
+        zone_id=zone_id,
+        plan_version=1,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        expires_at=valid_expires_at,
+        plan_signature=sig,
+        existing_records_hash=records_hash,
+        required_records=required,
+        conflicts=[],
+        has_conflicts=False,
+    )
+
+    # First request claims the plan
+    ServerDnsPlanStore.atomic_claim_plan(plan_id, admin_username="admin_first")
+
+    # Second request attempts to apply
+    payload = {
+        "domain": clean_domain,
+        "target_platform": "vercel",
+        "plan_id": plan_id,
+        "plan_signature": sig,
+        "expires_at": valid_expires_at,
+        "approved": True,
+        "override_conflicts": False,
+    }
+    with patch("app.services.integrations.cloudflare_service.cloudflare_service.create_dns_record", AsyncMock()) as mock_create:
+        res = client.post("/api/integrations/apply", headers=admin_headers, json=payload)
+        assert res.status_code == 409
+        assert res.json()["detail"]["error"] == "PLAN_ALREADY_CLAIMED"
+        mock_create.assert_not_called()
+
+
+# ============================================================================
+# 5C. CONFLICT SAFETY & DELETION VERIFICATION TESTS (REQUIREMENT 3)
+# ============================================================================
+
+def test_deletion_api_failure_handled_and_does_not_report_success():
+    """
+    Requirement 3: Verifies that if deleting a conflicting record fails in Cloudflare API,
+    the operation fails with 502, does not report success, marks plan as failed, and does not record deletion in audit log.
+    """
+    async def _test():
+        workflow = DnsWorkflowService()
+        clean_domain = "till.gy"
+        zone_id = "zone_cf_test"
+        required = [DnsRecordItem(type="CNAME", name="@", content="cname.vercel-dns.com")]
+        existing = [DnsRecordItem(id="conf_a", type="A", name="till.gy", content="1.2.3.4")]
+        conflicts = workflow.detect_conflicts(clean_domain, required, existing)
+
+        plan_id = "plan_del_fail_test"
+        valid_expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+        records_hash = compute_records_drift_hash(existing)
+        sig = generate_plan_signature(plan_id, 1, clean_domain, "vercel", zone_id, required, valid_expires_at, records_hash)
+
+        from app.services.integrations.dns_workflow_service import ServerDnsPlanStore
+        ServerDnsPlanStore.save_plan(
+            plan_id=plan_id,
+            domain=clean_domain,
+            target_platform="vercel",
+            zone_id=zone_id,
+            plan_version=1,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            expires_at=valid_expires_at,
+            plan_signature=sig,
+            existing_records_hash=records_hash,
+            required_records=required,
+            conflicts=conflicts,
+            has_conflicts=True,
+        )
+
+        with patch("app.services.integrations.cloudflare_service.cloudflare_service.list_dns_records", AsyncMock(return_value=existing)):
+            with patch(
+                "app.services.integrations.cloudflare_service.cloudflare_service.delete_dns_record",
+                AsyncMock(side_effect=CloudflareApiError("Failed to delete record: upstream error", status_code=502)),
+            ):
+                req = DnsApplyRequest(
+                    domain=clean_domain,
+                    target_platform="vercel",
+                    plan_id=plan_id,
+                    plan_signature=sig,
+                    expires_at=valid_expires_at,
+                    approved=True,
+                    override_conflicts=True,
+                )
+                with pytest.raises(Exception) as exc_info:
+                    await workflow.apply_dns_plan(req, admin_username="admin")
+                assert exc_info.value.status_code == 502
+                assert exc_info.value.detail["error"] == "CLOUDFLARE_ERROR"
+
+        # Plan marked failed
+        plan_data = ServerDnsPlanStore.get_plan(plan_id)
+        assert plan_data["status"] == "failed"
+
+    asyncio.run(_test())
 
 
 def test_conflict_override_separate_approval_required(client: TestClient, admin_headers: dict):
