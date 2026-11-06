@@ -68,8 +68,8 @@ def test_create_registration_request_success(client: TestClient):
     assert data["customer_email"] == "tala@domainmaster.gy"
     assert data["status"] == "pending"
     assert data["status_label"] == "Pending Initial Review"
-    assert data["estimated_annual_price"] == 45.0
-    assert "NOT register, hold, or reserve" in data["disclaimer"]
+    assert data["estimated_annual_price"] == 0.0
+    assert "FREE TESTING MODE" in data["disclaimer"]
 
 
 def test_request_id_entropy(client: TestClient):
@@ -117,15 +117,18 @@ def test_reject_invalid_email(client: TestClient):
         assert "Invalid customer email format" in response.json()["detail"]["message"]
 
 
-def test_reject_non_gy_domain(client: TestClient):
-    payload = {
-        "customer_name": "Prem Singh",
-        "customer_email": "prem@example.gy",
-        "domain": "prem.com",
-    }
-    response = client.post("/api/registrations/requests", json=payload)
-    assert response.status_code == 400
-    assert "Only .gy domains are supported" in response.json()["detail"]["message"]
+def test_support_all_configured_domain_extensions(client: TestClient):
+    """Verifies that registration requests accept any valid configured extension (.com, .in, .org, .net, .gy)."""
+    for dom in ["prem.com", "startup.in", "community.org", "network.net", "identity.gy"]:
+        payload = {
+            "customer_name": "Multi TLD Customer",
+            "customer_email": "multitld@example.com",
+            "domain": dom,
+        }
+        response = client.post("/api/registrations/requests", json=payload)
+        assert response.status_code == 201
+        assert response.json()["domain"] == dom
+        assert response.json()["estimated_annual_price"] == 0.0
 
 
 def test_reject_invalid_domain_syntax(client: TestClient):
@@ -263,8 +266,8 @@ def test_public_tracking_privacy_protection(client: TestClient):
     assert pub_data["request_id"] == req_id
     assert pub_data["domain"] == "private-brand.gy"
     assert pub_data["status"] == "pending"
-    assert pub_data["pricing_type"] == "estimated"
-    assert pub_data["pricing_amount"] == 45.0
+    assert pub_data["pricing_type"] in {"free_testing", "estimated"}
+    assert pub_data["pricing_amount"] == 0.0
     assert "disclaimer" in pub_data
 
 
@@ -542,7 +545,7 @@ def test_request_size_limit_rejection(client: TestClient):
 def test_pricing_service_estimate_labeling():
     from app.models.domain import DomainAvailability
     price_info = PricingService.get_pricing(name="tala", extension=".gy", availability=DomainAvailability.AVAILABLE)
-    assert price_info.registration_price == 45.0
-    assert price_info.renewal_price == 45.0
+    assert price_info.registration_price == 0.0
+    assert price_info.renewal_price == 0.0
     assert price_info.is_mock is True
-    assert "estimate" in price_info.pricing_note.lower() or "estimated" in price_info.pricing_note.lower()
+    assert "FREE TESTING MODE" in price_info.pricing_note

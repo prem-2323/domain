@@ -92,25 +92,25 @@ export const DomainResultCard: React.FC<DomainResultCardProps> = ({
             {isAvailable && (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                Available
+                Available (Free for Testing)
               </span>
             )}
             {isPremium && (
               <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/15 border border-purple-500/30 px-2.5 py-0.5 text-xs font-semibold text-purple-300">
                 <Sparkles className="h-3.5 w-3.5 text-purple-400" />
-                Premium .GY Domain
+                Featured {item.tld}
               </span>
             )}
             {isTaken && (
               <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 text-xs font-semibold text-rose-400">
                 <XCircle className="h-3.5 w-3.5 text-rose-400" />
-                Unavailable / Reserved by .GY Registry
+                Unavailable / Reserved
               </span>
             )}
 
             {/* Registry Tag */}
             <span className="text-[10px] text-slate-400 font-mono">
-              [University of Guyana .GY Registry]
+              [{item.registry || 'Accredited Registry'}]
             </span>
           </div>
 
@@ -138,13 +138,13 @@ export const DomainResultCard: React.FC<DomainResultCardProps> = ({
             {!isTaken ? (
               <>
                 <div className="flex items-baseline sm:justify-end gap-1.5">
-                  <span className="text-2xl sm:text-3xl font-extrabold text-white font-mono">
-                    ${item.price.registration.toFixed(2)}
+                  <span className="text-2xl sm:text-3xl font-extrabold text-emerald-400 font-mono">
+                    FREE
                   </span>
-                  <span className="text-xs text-slate-400">/ yr</span>
+                  <span className="text-xs text-slate-400">($0 Testing)</span>
                 </div>
-                <div className="flex items-center sm:justify-end gap-2 text-xs text-slate-400">
-                  <span>Accredited Registrar Rate (Est.)</span>
+                <div className="flex items-center sm:justify-end gap-2 text-xs text-emerald-400/80">
+                  <span>Free Application Testing</span>
                 </div>
               </>
             ) : (

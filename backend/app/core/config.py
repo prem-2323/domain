@@ -94,6 +94,24 @@ class Settings(BaseSettings):
         description="Admin session lifetime in hours",
     )
 
+    # Free Testing Mode Configuration
+    FREE_TESTING_MODE: bool = Field(
+        default=True,
+        description="Enable Free Testing Mode ($0 / Free for all domain extensions and all users)",
+    )
+    FREE_TESTING_DISCLAIMER: str = (
+        "FREE TESTING MODE: No payment is collected by MasterTools Domains. "
+        "This does not waive actual registry or accredited registrar fees."
+    )
+    SUPPORTED_EXTENSIONS: List[str] = Field(
+        default=[".gy", ".com", ".in", ".org", ".net", ".co", ".io", ".tech", ".ai", ".me"],
+        description="Configured domain extensions supported across the platform",
+    )
+    DATA_DIR: Optional[str] = Field(
+        default=None,
+        description="Persistent disk directory path for SQLite database (e.g. Render /var/data)",
+    )
+
     # Security & Rate Limiting Limits
     MAX_REQUEST_BODY_BYTES: int = Field(
         default=64 * 1024,
@@ -225,6 +243,8 @@ class Settings(BaseSettings):
             "app_name": self.APP_NAME,
             "environment": self.APP_ENV,
             "debug": self.DEBUG,
+            "free_testing_mode": self.FREE_TESTING_MODE,
+            "supported_extensions": self.SUPPORTED_EXTENSIONS,
             "active_provider": active,
             "sandbox_mode": self.REGISTRAR_USE_SANDBOX,
             "is_provider_ready": self.is_provider_configured(active),

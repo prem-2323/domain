@@ -28,22 +28,22 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         {/* Eyebrow Pill */}
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1 text-xs font-semibold text-emerald-300 shadow-sm backdrop-blur-md mb-6 hover:border-emerald-500/50 transition-colors">
           <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span>Exclusive .GY Domain Marketplace</span>
+          <span>FREE TESTING MODE</span>
           <span className="text-slate-500">•</span>
-          <span className="text-teal-300">University of Guyana Registry</span>
+          <span className="text-teal-300">All Extensions Supported (.gy, .com, .in, .org, .net, .io, .ai)</span>
         </div>
 
         {/* Main Headline */}
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white mb-6 leading-[1.1]">
           Find your perfect{' '}
           <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-indigo-400 bg-clip-text text-transparent">
-            .gy domain.
+            domain for free.
           </span>
         </h1>
 
         {/* Subtitle */}
         <p className="mx-auto max-w-2xl text-base sm:text-lg text-slate-400 mb-10 leading-relaxed font-normal">
-          Search exclusively for names ending in <strong>.gy</strong>. Discover available identities, verify with authorized registrars, and connect seamlessly to Vercel and Render with Cloudflare DNS.
+          Search across <strong>all domain extensions</strong> in Free Application Testing Mode. Submit registration requests, track progress securely, and prepare Cloudflare Anycast DNS for Vercel and Render.
         </p>
 
         {/* Search Bar Component */}
@@ -60,7 +60,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
         <div className="flex flex-wrap items-center justify-center gap-y-3 gap-x-8 text-xs sm:text-sm text-slate-400">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-emerald-400" />
-            <span className="text-slate-300 font-medium">Official .GY ccTLD</span>
+            <span className="text-slate-300 font-medium">Free Testing Mode ($0.00)</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -75,7 +75,7 @@ export const HeroSection: React.FC<HeroSectionProps> = ({
 
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-blue-400" />
-            <span className="text-slate-300 font-medium">Accredited Registrar Fulfillment</span>
+            <span className="text-slate-300 font-medium">Multi-TLD Catalog (.gy, .com, .in...)</span>
           </div>
         </div>
       </div>

@@ -93,10 +93,10 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
                 <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 uppercase tracking-wider">
                   Service Offline
                 </span>
-                <span className="text-xs text-slate-400 font-mono">.GY Search Engine</span>
+                <span className="text-xs text-slate-400 font-mono">Domain Search Engine</span>
               </div>
               <h3 className="text-lg font-bold text-white">
-                Live .GY Registry Search Service Unavailable
+                Live Search Service Unavailable
               </h3>
               <p className="text-sm text-amber-200/90 leading-relaxed font-medium">
                 {errorMessage}
@@ -104,7 +104,7 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
               <div className="mt-4 rounded-xl border border-slate-800 bg-[#070b14] p-3 text-xs text-slate-300 space-y-1">
                 <div className="font-semibold text-slate-200 mb-1">Production Transparency Policy:</div>
                 <p className="text-slate-400 text-xs">
-                  Silent simulated mock search results are disabled in production to protect users from registering unavailable domains or seeing inaccurate pricing. Live registry search will resume once the backend service is reachable.
+                  Silent simulated mock search results are disabled in production to protect users from inaccurate data. Live search will resume once the backend service is reachable.
                 </p>
               </div>
             </div>
@@ -128,10 +128,10 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
                 <span className="rounded-full bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-300 uppercase tracking-wider">
                   Validation Error
                 </span>
-                <span className="text-xs text-slate-400 font-mono">FastAPI .GY Domain Engine</span>
+                <span className="text-xs text-slate-400 font-mono">FastAPI Domain Engine</span>
               </div>
               <h3 className="text-lg font-bold text-white">
-                "{searchQuery}" is not a valid .gy domain name
+                "{searchQuery}" is not a valid domain query
               </h3>
               <p className="text-sm text-rose-300 leading-relaxed font-medium">
                 {errorMessage}
@@ -139,11 +139,11 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
 
               {/* Guidelines */}
               <div className="mt-4 rounded-xl border border-slate-800 bg-[#070b14] p-3 text-xs text-slate-300 space-y-1">
-                <div className="font-semibold text-slate-200 mb-1">.GY Domain Standards:</div>
+                <div className="font-semibold text-slate-200 mb-1">Domain Standards:</div>
                 <ul className="list-disc list-inside space-y-0.5 text-slate-400">
-                  <li>Between 1 and 63 alphanumeric characters</li>
+                  <li>Between 1 and 63 alphanumeric characters per label</li>
                   <li>Can contain hyphens (-) but cannot start or end with a hyphen</li>
-                  <li>All names are registered under the official .gy ccTLD</li>
+                  <li>Supported extensions include .gy, .com, .in, .org, .net, .co, .io, .tech, .ai, .me</li>
                 </ul>
               </div>
 
@@ -151,14 +151,14 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
               {onTrySuggestion && (
                 <div className="pt-3 flex flex-wrap items-center gap-2">
                   <span className="text-xs text-slate-400">Try instead:</span>
-                  {['tala', 'prem', 'mastertools', 'myshop', 'myportfolio'].map((sugg) => (
+                  {['tala.gy', 'prem.com', 'mastertools.in', 'shop.org', 'cloud.ai'].map((sugg) => (
                     <button
                       key={sugg}
                       type="button"
                       onClick={() => onTrySuggestion(sugg)}
                       className="rounded-lg border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-xs font-mono text-emerald-300 hover:border-emerald-500 hover:text-white transition-colors cursor-pointer"
                     >
-                      {sugg}.gy
+                      {sugg}
                     </button>
                   ))}
                 </div>
@@ -178,10 +178,10 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
           <Search className="h-6 w-6" />
         </div>
         <h3 className="text-lg font-semibold text-white">
-          Enter a domain name above to check .gy availability
+          Enter a domain name above to check availability
         </h3>
         <p className="mt-1 text-sm text-slate-400 max-w-md mx-auto">
-          Search for your brand or personal identity (e.g. "tala", "prem", "mastertools", "myshop"). MasterTools searches exclusively on the .gy ccTLD.
+          Search for your brand or personal identity (e.g. "tala.gy", "prem.com", "mastertools.in"). Free Application Testing Mode enabled.
         </p>
       </div>
     );
@@ -194,7 +194,7 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 mb-3">
           <AlertTriangle className="h-5 w-5" />
         </div>
-        <h3 className="text-base font-semibold text-white">No .gy domain variations found for "{searchQuery}"</h3>
+        <h3 className="text-base font-semibold text-white">No domain variations found for "{searchQuery}"</h3>
         <p className="mt-1 text-xs text-slate-400">
           Try a shorter name or search without special characters.
         </p>
@@ -212,7 +212,7 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
           <div className="flex items-start sm:items-center gap-2 text-emerald-300 font-medium">
             <Info className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
             <span>
-              <strong>University of Guyana .GY Registry Notice:</strong> Availability is marked unverified until checked with an authorized registrar. Registrations are fulfilled through accredited partners.
+              <strong>FREE TESTING MODE:</strong> No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees. Availability is marked unverified until checked with an authorized registrar.
             </span>
           </div>
           <a
@@ -221,7 +221,7 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
             rel="noopener noreferrer"
             className="flex items-center gap-1 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 px-2.5 py-1 text-[10px] font-mono text-emerald-200 uppercase self-start sm:self-auto shrink-0 transition-colors"
           >
-            <span>Accredited Registrars</span>
+            <span>Accredited Directory</span>
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
@@ -231,8 +231,8 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-3 border-b border-slate-800">
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            .GY Results for <span className="text-emerald-400 font-mono">"{searchQuery}"</span>
-            <span className="text-xs font-normal text-slate-400">({results.length} .gy variations generated)</span>
+            Results for <span className="text-emerald-400 font-mono">"{searchQuery}"</span>
+            <span className="text-xs font-normal text-slate-400">({results.length} variations • $0 Free Testing)</span>
           </h2>
         </div>
 

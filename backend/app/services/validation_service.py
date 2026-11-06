@@ -52,17 +52,21 @@ class ValidationService:
         if ".." in cleaned:
             return False, cleaned, None, "Domain name cannot contain consecutive dots."
 
-        # Check if user entered an extension (e.g. "tala", "tala.gy", or "tala.com")
+        # Check if user entered an extension (e.g. "tala", "tala.gy", "myshop.com", "app.in")
         parts = cleaned.split(".")
         if any(len(p) == 0 for p in parts):
             return False, cleaned, None, "Domain label cannot be empty."
 
         if len(parts) > 1:
             sld = parts[0]
-            explicit_tld = ".gy"
+            explicit_tld = "." + ".".join(parts[1:])
+            # Validate TLD parts
+            for tld_part in parts[1:]:
+                if not cls.LABEL_PATTERN.match(tld_part):
+                    return False, sld, explicit_tld, f"Invalid domain extension label: '{tld_part}'."
         else:
             sld = parts[0]
-            explicit_tld = ".gy"
+            explicit_tld = None
 
         # Validate SLD (Second-Level Domain)
         if len(sld) == 0:

@@ -1,13 +1,12 @@
 from app.models.domain import DomainAvailability, PricingModel
 from app.services.catalog_service import CatalogService
+from app.core.config import settings
 
 
 class PricingService:
     """
-    Mock pricing calculation service.
-    
-    Provides simulated registration and renewal prices based on TLD catalogue rates
-    and domain tier (standard vs premium).
+    Pricing calculation service.
+    In Free Testing Mode, registration and renewal prices are strictly $0.00 / Free.
     """
 
     @classmethod
@@ -18,8 +17,20 @@ class PricingService:
         availability: DomainAvailability,
     ) -> PricingModel:
         """
-        Generates simulated pricing for a given domain and extension.
+        Generates pricing for a given domain and extension.
+        Enforces $0.00 / Free Testing Mode when enabled.
         """
+        if settings.FREE_TESTING_MODE:
+            return PricingModel(
+                registration_price=0.0,
+                renewal_price=0.0,
+                currency="USD",
+                discount_percent=None,
+                period_years=1,
+                is_mock=True,
+                pricing_note=settings.FREE_TESTING_DISCLAIMER,
+            )
+
         metadata = CatalogService.EXTENSIONS_METADATA.get(
             extension.lower(),
             {
@@ -32,7 +43,6 @@ class PricingService:
         base_renewal = float(metadata.get("base_renewal", 19.99))
 
         if availability == DomainAvailability.PREMIUM:
-            # Deterministic multiplier for premium valuation
             multiplier = 8.0 if len(name) <= 3 else 4.5
             premium_price = round(base_reg * multiplier, 2)
             return PricingModel(
@@ -61,5 +71,5 @@ class PricingService:
             discount_percent=None,
             period_years=1,
             is_mock=True,
-            pricing_note="Estimated accredited registrar rate (~$45.00/yr). Final price confirmed upon registrar quote.",
+            pricing_note="Standard accredited registrar rate. Final price confirmed upon registrar quote.",
         )

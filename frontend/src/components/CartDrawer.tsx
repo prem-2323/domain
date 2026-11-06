@@ -34,11 +34,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   if (!isOpen) return null;
 
-  const total = items.reduce(
-    (sum, item) => sum + item.price.registration * item.years,
-    0
-  );
-
   const handleSubmitRequest = () => {
     setIsProcessing(true);
     setTimeout(() => {
@@ -71,9 +66,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <ShoppingCart className="h-4 w-4" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-white">.GY Registration Queue</h2>
+                  <h2 className="text-base font-bold text-white">Registration Queue</h2>
                   <p className="text-xs text-slate-400">
-                    {items.length} {items.length === 1 ? 'domain' : 'domains'} selected
+                    {items.length} {items.length === 1 ? 'domain' : 'domains'} selected • Free Testing Mode
                   </p>
                 </div>
               </div>
@@ -86,9 +81,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               </button>
             </div>
 
-            {/* Registry Info Notice */}
+            {/* Free Testing Mode Notice */}
             <div className="mt-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 text-[11px] text-emerald-300 flex items-center justify-between">
-              <span>University of Guyana .GY Registry</span>
+              <span>FREE TESTING MODE Active ($0.00)</span>
               <a
                 href="https://registry.gy/registrars/"
                 target="_blank"
@@ -112,12 +107,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   Registration Request Queued!
                 </h3>
                 <p className="text-xs text-slate-300 leading-relaxed max-w-xs mx-auto">
-                  No payment was charged. MasterTools coordinates directly with accredited .GY registrars to fulfill official registration. Your Cloudflare DNS and Vercel/Render bridge will link automatically once verified.
+                  FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees. Your Cloudflare DNS and Vercel/Render bridge will link automatically once verified.
                 </p>
 
                 <div className="rounded-xl border border-slate-800 bg-[#070b14] p-4 text-left space-y-2 text-xs font-mono">
                   <div className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">
-                    Requested .GY Domains:
+                    Requested Domains:
                   </div>
                   {items.map((it) => (
                     <div key={it.domain} className="flex items-center justify-between text-emerald-300">
@@ -155,9 +150,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             ) : items.length === 0 ? (
               <div className="text-center py-12 space-y-3">
                 <ShoppingCart className="mx-auto h-10 w-10 text-slate-600" />
-                <p className="text-sm text-slate-400">Your .gy registration queue is empty.</p>
+                <p className="text-sm text-slate-400">Your registration queue is empty.</p>
                 <p className="text-xs text-slate-400">
-                  Search for a name above (e.g. "tala", "prem") and click "Register via Partner".
+                  Search for a domain above (e.g. "tala.gy", "myapp.com") and click "Register via Partner".
                 </p>
               </div>
             ) : (
@@ -171,7 +166,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <div className="text-base font-bold text-white font-mono flex items-center gap-2">
                         <span>{item.domain}</span>
                         <span className="text-[10px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded">
-                          .gy ccTLD
+                          {item.domain.slice(item.domain.indexOf('.')) || 'TLD'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
@@ -179,7 +174,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                           <Shield className="h-3 w-3" /> Free Privacy
                         </span>
                         <span>•</span>
-                        <span>${item.price.registration.toFixed(2)}/yr standard rate</span>
+                        <span className="text-emerald-400 font-semibold">FREE ($0.00 Testing)</span>
                       </div>
                     </div>
                     <button
@@ -205,10 +200,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         }
                         className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-xs text-slate-200 focus:outline-none"
                       >
-                        <option value={1}>1 Year (${item.price.registration.toFixed(2)})</option>
-                        <option value={2}>2 Years (${(item.price.registration * 2).toFixed(2)})</option>
-                        <option value={3}>3 Years (${(item.price.registration * 3).toFixed(2)})</option>
-                        <option value={5}>5 Years (${(item.price.registration * 5).toFixed(2)})</option>
+                        <option value={1}>1 Year (FREE / $0 Testing)</option>
+                        <option value={2}>2 Years (FREE / $0 Testing)</option>
+                        <option value={3}>3 Years (FREE / $0 Testing)</option>
+                        <option value={5}>5 Years (FREE / $0 Testing)</option>
                       </select>
                     </div>
 
@@ -242,21 +237,17 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             <div className="pt-4 border-t border-slate-800 space-y-3">
               <div className="space-y-1.5 text-xs text-slate-300">
                 <div className="flex justify-between">
-                  <span>Estimated Registrar Fee</span>
-                  <span className="font-mono">${total.toFixed(2)}</span>
+                  <span>Application Testing Fee</span>
+                  <span className="font-mono text-emerald-400 font-semibold">FREE ($0.00)</span>
                 </div>
                 <div className="flex justify-between text-slate-400">
                   <span>WHOIS Privacy & Cloudflare DNS</span>
                   <span className="text-emerald-400 font-semibold">$0.00 (FREE)</span>
                 </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>ICANN Fees</span>
-                  <span className="text-slate-400 font-mono">$0.00 (Exempt ccTLD)</span>
-                </div>
                 <div className="flex justify-between pt-2 border-t border-slate-800 text-sm font-bold text-white">
-                  <span>Estimated Total</span>
+                  <span>Total Today</span>
                   <span className="text-lg font-mono text-emerald-400">
-                    ${total.toFixed(2)}
+                    $0.00 (FREE)
                   </span>
                 </div>
               </div>
@@ -268,17 +259,17 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-600/30 hover:brightness-110 active:scale-[0.99] transition-all disabled:opacity-50 cursor-pointer"
               >
                 {isProcessing ? (
-                  <span>Coordinating with Registrar...</span>
+                  <span>Coordinating Request...</span>
                 ) : (
                   <>
                     <Send className="h-4 w-4" />
-                    <span>Submit Registration Request (${total.toFixed(2)})</span>
+                    <span>Submit Free Registration Request ($0)</span>
                   </>
                 )}
               </button>
 
               <p className="text-center text-[11px] text-slate-400 leading-tight">
-                No immediate payment required. Registrations are fulfilled through authorized .GY accredited registrars.
+                FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees.
               </p>
             </div>
           )}

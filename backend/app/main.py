@@ -84,9 +84,11 @@ app.include_router(admin_operations_router)
 @app.get("/")
 def root():
     return {
-        "message": "Welcome to MasterTools Domains API (.GY ccTLD Registry Platform)",
+        "message": "Welcome to MasterTools Domains API (Free Testing Mode)",
         "status": "running",
         "environment": settings.APP_ENV,
+        "free_testing_mode": settings.FREE_TESTING_MODE,
+        "supported_extensions": settings.SUPPORTED_EXTENSIONS,
     }
 
 
@@ -95,6 +97,14 @@ def health():
     return {
         "status": "healthy",
         "service": "mastertools-domains",
-        "extension": ".gy",
-        "version": "0.2.0",
+        "free_testing_mode": settings.FREE_TESTING_MODE,
+        "supported_extensions": settings.SUPPORTED_EXTENSIONS,
+        "version": "0.3.0",
     }
+
+
+if __name__ == "__main__":
+    import os
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=settings.DEBUG)

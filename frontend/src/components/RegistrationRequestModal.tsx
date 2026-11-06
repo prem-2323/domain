@@ -224,8 +224,8 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                 <span className="text-amber-300 font-semibold">{createdRequest.status_label}</span>
               </div>
               <div className="flex justify-between text-slate-300">
-                <span className="text-slate-400">Estimated Rate:</span>
-                <span className="font-mono text-emerald-400 font-bold">~${createdRequest.estimated_annual_price.toFixed(2)}/yr (Estimate)</span>
+                <span className="text-slate-400">Pricing Mode:</span>
+                <span className="font-mono text-emerald-400 font-bold">FREE / $0.00 (Testing Mode)</span>
               </div>
             </div>
 
@@ -233,7 +233,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
             <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-left text-[11px] text-amber-200/90 flex items-start gap-2">
               <Info className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
               <span>
-                <strong>Next Steps:</strong> An accredited registrar liaison will verify registry availability directly with the University of Guyana .GY Registry. We will email you at <strong>{createdRequest.customer_email}</strong> with confirmed pricing before any registration is completed.
+                <strong>FREE TESTING MODE:</strong> No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees. We will email you at <strong>{createdRequest.customer_email}</strong> with next steps.
               </span>
             </div>
 
@@ -258,7 +258,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                     Manual Registration Request
                   </span>
                   <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded font-mono">
-                    .GY ccTLD
+                    Free Testing Mode
                   </span>
                 </div>
                 <h2 className="text-xl font-bold text-white font-mono flex items-center gap-1.5">
@@ -272,12 +272,10 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
             <div className="mb-5 rounded-2xl border border-amber-500/30 bg-gradient-to-b from-amber-950/30 to-amber-950/10 p-4 text-xs text-amber-200/90 space-y-1.5">
               <div className="flex items-center gap-1.5 font-bold text-amber-300">
                 <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
-                <span>Notice on .GY Domain Allocation</span>
+                <span>Notice on Testing Mode & Domain Allocation</span>
               </div>
               <p className="leading-relaxed text-[11px] text-slate-300">
-                Submitting this request <strong>does not register, hold, or reserve</strong> the domain.
-                All .gy domains are administered by the University of Guyana .GY Registry and allocated through accredited registrars.
-                Our team will verify registry availability and provide confirmed pricing before formal registration occurs.
+                <strong>FREE TESTING MODE:</strong> No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees. Submitting this request does not reserve or register the domain at the registry level. Availability must be verified with an accredited registrar.
               </p>
               <div className="pt-1 flex items-center gap-1 text-[11px] text-amber-400">
                 <ExternalLink className="h-3 w-3" />
@@ -308,8 +306,8 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                 </label>
                 <div className="flex items-center justify-between rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2.5 font-mono text-sm text-emerald-400 font-semibold">
                   <span>{targetDomain}</span>
-                  <span className="text-xs text-slate-400 font-sans font-normal">
-                    Est. ~${domainItem.price.registration.toFixed(2)}/yr (Subject to registrar confirmation)
+                  <span className="text-xs text-emerald-400 font-sans font-semibold">
+                    FREE ($0.00 Testing Mode)
                   </span>
                 </div>
               </div>
@@ -364,7 +362,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
               {/* Value Inclusions */}
               <div className="flex items-center gap-2 text-xs text-slate-400 pt-1">
                 <Shield className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                <span>Zero payment required today • Handled via accredited registrar partners</span>
+                <span>FREE Application Testing Mode ($0.00) • No payment collected</span>
               </div>
 
               {/* Submit CTA */}
@@ -382,7 +380,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                   ) : (
                     <>
                       <Send className="h-4 w-4" />
-                      <span>Submit Registration Request</span>
+                      <span>Submit Free Registration Request ($0)</span>
                     </>
                   )}
                 </button>

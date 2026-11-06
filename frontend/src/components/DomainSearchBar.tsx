@@ -25,18 +25,18 @@ export const DomainSearchBar: React.FC<DomainSearchBarProps> = ({
     e.preventDefault();
     const trimmed = query.trim();
     if (!trimmed) return;
-    onSearch(trimmed, '.gy');
+    onSearch(trimmed);
   };
 
   const handleClear = () => {
     setQuery('');
   };
 
-  const sampleSuggestions = ['tala', 'prem', 'mastertools', 'myshop', 'myportfolio'];
+  const sampleSuggestions = ['tala.gy', 'prem.com', 'mastertools.in', 'shop.org', 'cloud.ai'];
 
   const handleSuggestionClick = (suggestion: string) => {
     setQuery(suggestion);
-    onSearch(suggestion, '.gy');
+    onSearch(suggestion);
   };
 
   return (
@@ -71,14 +71,14 @@ export const DomainSearchBar: React.FC<DomainSearchBarProps> = ({
             )}
           </div>
 
-          {/* Fixed .gy Extension Badge */}
+          {/* Multi-TLD Extension Badge */}
           <div className="flex items-center border-t sm:border-t-0 sm:border-l border-slate-800/80 pt-2 sm:pt-0 sm:pl-2">
             <div
-              title="MasterTools Domains focuses exclusively on the .gy ccTLD"
+              title="Free Testing Mode supports .gy, .com, .in, .org, .net, .co, .io, .tech, .ai, .me"
               className="flex items-center justify-center gap-1.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 px-3.5 py-2.5 text-xs font-semibold text-indigo-200 select-none w-full sm:w-auto"
             >
-              <span className="font-mono text-emerald-400 font-bold text-sm">.gy</span>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider">ccTLD</span>
+              <span className="font-mono text-emerald-400 font-bold text-sm">All TLDs</span>
+              <span className="text-[10px] text-emerald-300 uppercase tracking-wider font-bold">$0 FREE</span>
             </div>
           </div>
 
@@ -96,7 +96,7 @@ export const DomainSearchBar: React.FC<DomainSearchBarProps> = ({
             ) : (
               <>
                 <Search className="h-4 w-4" />
-                <span>Search .gy</span>
+                <span>Search</span>
               </>
             )}
           </button>
@@ -107,7 +107,7 @@ export const DomainSearchBar: React.FC<DomainSearchBarProps> = ({
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-400">
         <span className="flex items-center gap-1 text-slate-400">
           <Sparkles className="h-3 w-3 text-indigo-400" />
-          Try .gy names:
+          Try extensions ($0 testing):
         </span>
         {sampleSuggestions.map((item) => (
           <button
@@ -116,7 +116,7 @@ export const DomainSearchBar: React.FC<DomainSearchBarProps> = ({
             onClick={() => handleSuggestionClick(item)}
             className="rounded-full border border-slate-800/80 bg-slate-900/60 px-2.5 py-0.5 font-mono text-slate-300 hover:border-indigo-500/50 hover:bg-slate-850 hover:text-indigo-300 transition-all cursor-pointer"
           >
-            {item}.gy
+            {item}
           </button>
         ))}
       </div>

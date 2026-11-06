@@ -136,7 +136,7 @@ export interface RegistrationRequestItem {
   status_label: string;
   estimated_annual_price: number;
   confirmed_price?: number | null;
-  pricing_type?: 'estimated' | 'confirmed';
+  pricing_type?: 'estimated' | 'confirmed' | 'free_testing';
   pricing_amount?: number;
   currency: string;
   admin_notes?: string | null;
@@ -151,7 +151,7 @@ export interface PublicRegistrationRequestItem {
   domain: string;
   status: RegistrationRequestStatus;
   status_label: string;
-  pricing_type: 'estimated' | 'confirmed';
+  pricing_type: 'estimated' | 'confirmed' | 'free_testing';
   pricing_amount: number;
   currency: string;
   created_at: string;

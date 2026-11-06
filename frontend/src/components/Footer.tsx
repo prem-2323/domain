@@ -155,26 +155,31 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Bottom Banner & Disclaimer */}
-        <div className="pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
-          <div className="text-slate-400 text-center sm:text-left">
-            &copy; {new Date().getFullYear()} MasterTools Domains. Built for modern cloud builders. .GY ccTLD managed by the University of Guyana .GY Registry.
+        <div className="pt-8 border-t border-slate-800/80 flex flex-col items-center justify-between gap-4 text-xs">
+          <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-2.5 text-center text-amber-200/90 text-xs w-full">
+            <strong>FREE TESTING MODE:</strong> No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees.
           </div>
+          <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-2 text-slate-400">
+            <div className="text-slate-400 text-center sm:text-left">
+              &copy; {new Date().getFullYear()} MasterTools Domains. Built for modern cloud builders. Multi-TLD Free Testing Mode.
+            </div>
 
-          <div className="flex items-center gap-4 text-slate-400">
-            <span className="flex items-center gap-1.5 text-emerald-400">
-              <Shield className="h-3.5 w-3.5" />
-              <span>Free WHOIS Privacy Guaranteed</span>
-            </span>
-            <span>•</span>
-            <a
-              href="https://registry.gy/registrars/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-slate-400 hover:text-white flex items-center gap-1"
-            >
-              <span>Official Registrars</span>
-              <ExternalLink className="h-3 w-3" />
-            </a>
+            <div className="flex items-center gap-4 text-slate-400">
+              <span className="flex items-center gap-1.5 text-emerald-400">
+                <Shield className="h-3.5 w-3.5" />
+                <span>Free WHOIS Privacy Guaranteed</span>
+              </span>
+              <span>•</span>
+              <a
+                href="https://registry.gy/registrars/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-slate-400 hover:text-white flex items-center gap-1"
+              >
+                <span>Official Registrars</span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
           </div>
         </div>
       </div>

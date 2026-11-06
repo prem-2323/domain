@@ -29,7 +29,7 @@ STATUS_LABELS = {
 class CreateRegistrationRequest(BaseModel):
     customer_name: str = Field(..., min_length=2, max_length=120, description="Full customer name")
     customer_email: str = Field(..., min_length=5, max_length=255, description="Customer email address")
-    domain: str = Field(..., min_length=4, max_length=100, description="Requested domain ending in .gy (e.g. tala.gy)")
+    domain: str = Field(..., min_length=3, max_length=100, description="Requested domain name (e.g. tala.gy, prem.com, myshop.in)")
     message: Optional[str] = Field(default=None, max_length=1000, description="Optional customer message or intended use")
 
 
@@ -41,12 +41,12 @@ class CustomerRequestCreatedResponse(BaseModel):
     customer_email: str = Field(..., description="Customer email address")
     status: RegistrationRequestStatus = Field(default=RegistrationRequestStatus.PENDING)
     status_label: str = Field(..., description="Human-readable status label")
-    estimated_annual_price: float = Field(default=45.0, description="Estimated price from .GY accredited registrar (~$45.00/yr)")
-    pricing_status: str = Field(default="estimated", description="'estimated' | 'confirmed'")
+    estimated_annual_price: float = Field(default=0.0, description="Price ($0 in Free Testing Mode)")
+    pricing_status: str = Field(default="free_testing", description="'free_testing' | 'estimated' | 'confirmed'")
     currency: str = Field(default="USD")
     created_at: str = Field(..., description="ISO 8601 UTC creation timestamp")
     disclaimer: str = Field(
-        default="Submitting a request does NOT register, hold, or reserve the domain name. Allocation requires verification by the University of Guyana .GY Registry and accredited registrars."
+        default="FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees."
     )
 
 
@@ -61,13 +61,13 @@ class PublicRegistrationRequestResponse(BaseModel):
     domain: str = Field(..., description="Requested domain name")
     status: RegistrationRequestStatus = Field(..., description="Current request status")
     status_label: str = Field(..., description="Human-readable status label")
-    pricing_type: str = Field(default="estimated", description="'estimated' | 'confirmed'")
-    pricing_amount: float = Field(default=45.0, description="Estimated rate (~$45.00) or administrator-confirmed quote")
+    pricing_type: str = Field(default="free_testing", description="'free_testing' | 'estimated' | 'confirmed'")
+    pricing_amount: float = Field(default=0.0, description="Rate ($0 in Free Testing Mode)")
     currency: str = Field(default="USD")
     created_at: str = Field(..., description="ISO 8601 creation timestamp")
     updated_at: str = Field(..., description="ISO 8601 last update timestamp")
     disclaimer: str = Field(
-        default="Submitting a request does NOT register, hold, or reserve the domain name. Final allocation requires verification by the University of Guyana .GY Registry and accredited registrars."
+        default="FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees."
     )
 
 
@@ -85,13 +85,13 @@ class CustomerVerifiedRequestResponse(BaseModel):
     message: Optional[str] = None
     status: RegistrationRequestStatus
     status_label: str
-    estimated_annual_price: float
+    estimated_annual_price: float = 0.0
     confirmed_price: Optional[float] = None
-    pricing_type: str = "estimated"
+    pricing_type: str = "free_testing"
     currency: str = "USD"
     created_at: str
     updated_at: str
-    disclaimer: str
+    disclaimer: str = "FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees."
 
 
 # --- Admin Protected Models ---
@@ -119,15 +119,15 @@ class AdminRegistrationRequestResponse(BaseModel):
     message: Optional[str] = None
     status: RegistrationRequestStatus
     status_label: str
-    estimated_annual_price: float
+    estimated_annual_price: float = 0.0
     confirmed_price: Optional[float] = None
-    pricing_type: str = "estimated"
+    pricing_type: str = "free_testing"
     currency: str = "USD"
     admin_notes: Optional[str] = None
     confirmation_reference: Optional[str] = None
     created_at: str
     updated_at: str
-    disclaimer: str
+    disclaimer: str = "FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees."
 
 
 class AdminRegistrationRequestListResponse(BaseModel):

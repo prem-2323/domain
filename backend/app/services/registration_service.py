@@ -17,9 +17,14 @@ from app.models.registration import (
     AdminRegistrationRequestResponse,
 )
 from app.services.validation_service import ValidationService
+from app.core.config import settings
 
-# Default SQLite database location: backend/data/registrations.db
-DEFAULT_DB_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+# Default SQLite database location: supports settings.DATA_DIR for persistent volumes (e.g. Render)
+DEFAULT_DB_DIR = (
+    Path(settings.DATA_DIR)
+    if getattr(settings, "DATA_DIR", None)
+    else Path(__file__).resolve().parent.parent.parent / "data"
+)
 DEFAULT_DB_PATH = DEFAULT_DB_DIR / "registrations.db"
 
 # Strict RFC-compliant email validation pattern
@@ -210,33 +215,33 @@ class RegistrationService:
         if len(name) < 2 or len(name) > 120:
             return False, "Customer name must be between 2 and 120 characters.", ""
 
-        # 3. Domain validation
+        # 3. Domain validation (supports all extensions: .gy, .com, .in, .org, .net, etc.)
         raw_domain = req.domain.strip().lower()
-        if not raw_domain.endswith(".gy"):
-            return False, f"Only .gy domains are supported. '{req.domain}' does not end in .gy.", ""
-
         if ".." in raw_domain:
             return False, f"Invalid domain syntax: '{req.domain}' contains consecutive dots.", ""
 
         parts = raw_domain.split(".")
-        if len(parts) != 2:
-            return False, f"Invalid domain syntax: '{req.domain}'. Only standard <name>.gy domains are supported.", ""
+        if len(parts) < 2:
+            return False, f"Invalid domain syntax: '{req.domain}'. Please include a valid extension (e.g. .gy, .com, .in).", ""
 
-        # Validate SLD using ValidationService
-        is_valid, sld, _, err = ValidationService.parse_and_validate(raw_domain)
-        if not is_valid or not sld:
-            return False, err or f"Invalid .gy domain format: '{req.domain}'.", ""
+        # Validate SLD and TLD using ValidationService
+        is_valid, sld, explicit_tld, err = ValidationService.parse_and_validate(raw_domain)
+        if not is_valid or not sld or not explicit_tld:
+            return False, err or f"Invalid domain format: '{req.domain}'.", ""
 
-        normalized_domain = f"{sld}.gy"
+        normalized_domain = f"{sld}{explicit_tld}"
         return True, None, normalized_domain
 
     @classmethod
-    def generate_request_id(cls) -> str:
+    def generate_request_id(cls, domain: Optional[str] = None) -> str:
         """
         Generates a request ID with at least 128 bits of cryptographically secure randomness.
         16 bytes = 128 bits = 32 hexadecimal characters.
         """
         random_hex_128bit = secrets.token_hex(16).upper()
+        if domain and not domain.endswith(".gy"):
+            tld_clean = domain.split(".")[-1].upper()
+            return f"REQ-{tld_clean}-{random_hex_128bit}"
         return f"REQ-GY-{random_hex_128bit}"
 
     @classmethod
@@ -265,10 +270,10 @@ class RegistrationService:
 
         customer_email = req.customer_email.strip().lower()
         now_iso = datetime.now(timezone.utc).isoformat()
-        request_id = cls.generate_request_id()
+        request_id = cls.generate_request_id(normalized_domain)
         raw_tracking_token = cls.generate_tracking_token()
         token_hash = cls.hash_tracking_token(raw_tracking_token)
-        estimated_price = 45.0  # Standard accredited registrar rate
+        estimated_price = 0.0 if settings.FREE_TESTING_MODE else 45.0
 
         try:
             with cls._get_connection() as conn:
@@ -331,6 +336,16 @@ class RegistrationService:
                 409,
             )
 
+        pricing_status = "free_testing" if settings.FREE_TESTING_MODE else "estimated"
+        disclaimer = (
+            settings.FREE_TESTING_DISCLAIMER
+            if settings.FREE_TESTING_MODE
+            else (
+                "Submitting a request does NOT register, hold, or reserve the domain name. "
+                "Allocation requires verification by accredited registrars."
+            )
+        )
+
         response = CustomerRequestCreatedResponse(
             request_id=request_id,
             tracking_token=raw_tracking_token,
@@ -340,13 +355,10 @@ class RegistrationService:
             status=RegistrationRequestStatus.PENDING,
             status_label=STATUS_LABELS[RegistrationRequestStatus.PENDING],
             estimated_annual_price=estimated_price,
-            pricing_status="estimated",
+            pricing_status=pricing_status,
             currency="USD",
             created_at=now_iso,
-            disclaimer=(
-                "Submitting a request does NOT register, hold, or reserve the domain name. "
-                "Allocation requires verification by the University of Guyana .GY Registry and accredited registrars."
-            ),
+            disclaimer=disclaimer,
         )
 
         return True, response, None, 201
@@ -373,9 +385,15 @@ class RegistrationService:
                 return None
 
             status_enum = RegistrationRequestStatus(row["status"])
-            has_confirmed = row["confirmed_price"] is not None
-            pricing_type = "confirmed" if has_confirmed else "estimated"
-            pricing_amount = float(row["confirmed_price"]) if has_confirmed else float(row["estimated_annual_price"])
+            if settings.FREE_TESTING_MODE:
+                pricing_type = "free_testing"
+                pricing_amount = 0.0
+                disclaimer = settings.FREE_TESTING_DISCLAIMER
+            else:
+                has_confirmed = row["confirmed_price"] is not None
+                pricing_type = "confirmed" if has_confirmed else "estimated"
+                pricing_amount = float(row["confirmed_price"]) if has_confirmed else float(row["estimated_annual_price"])
+                disclaimer = "Submitting a request does NOT register, hold, or reserve the domain name."
 
             return PublicRegistrationRequestResponse(
                 request_id=row["request_id"],
@@ -387,6 +405,7 @@ class RegistrationService:
                 currency=row["currency"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
+                disclaimer=disclaimer,
             )
 
     @classmethod
@@ -429,6 +448,15 @@ class RegistrationService:
 
             status_enum = RegistrationRequestStatus(row["status"])
             has_confirmed = row["confirmed_price"] is not None
+            confirmed_price_val = float(row["confirmed_price"]) if has_confirmed else None
+            if settings.FREE_TESTING_MODE:
+                estimated_price = 0.0
+                pricing_type = "confirmed" if has_confirmed else "free_testing"
+                disclaimer = settings.FREE_TESTING_DISCLAIMER
+            else:
+                estimated_price = float(row["estimated_annual_price"])
+                pricing_type = "confirmed" if has_confirmed else "estimated"
+                disclaimer = "Submitting a request does NOT register, hold, or reserve the domain name."
 
             return CustomerVerifiedRequestResponse(
                 request_id=row["request_id"],
@@ -438,13 +466,13 @@ class RegistrationService:
                 message=row["message"],
                 status=status_enum,
                 status_label=STATUS_LABELS.get(status_enum, "Unknown Status"),
-                estimated_annual_price=float(row["estimated_annual_price"]),
-                confirmed_price=float(row["confirmed_price"]) if has_confirmed else None,
-                pricing_type="confirmed" if has_confirmed else "estimated",
+                estimated_annual_price=estimated_price,
+                confirmed_price=confirmed_price_val,
+                pricing_type=pricing_type,
                 currency=row["currency"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
-                disclaimer="Submitting a request does NOT register, hold, or reserve the domain name.",
+                disclaimer=disclaimer,
             )
 
     @classmethod
@@ -464,6 +492,15 @@ class RegistrationService:
 
             status_enum = RegistrationRequestStatus(row["status"])
             has_confirmed = row["confirmed_price"] is not None
+            confirmed_price_val = float(row["confirmed_price"]) if has_confirmed else None
+            if settings.FREE_TESTING_MODE:
+                estimated_price = 0.0
+                pricing_type = "confirmed" if has_confirmed else "free_testing"
+                disclaimer = settings.FREE_TESTING_DISCLAIMER
+            else:
+                estimated_price = float(row["estimated_annual_price"])
+                pricing_type = "confirmed" if has_confirmed else "estimated"
+                disclaimer = "Submitting a request does NOT register, hold, or reserve the domain name."
 
             return AdminRegistrationRequestResponse(
                 request_id=row["request_id"],
@@ -473,15 +510,15 @@ class RegistrationService:
                 message=row["message"],
                 status=status_enum,
                 status_label=STATUS_LABELS.get(status_enum, "Unknown Status"),
-                estimated_annual_price=float(row["estimated_annual_price"]),
-                confirmed_price=float(row["confirmed_price"]) if has_confirmed else None,
-                pricing_type="confirmed" if has_confirmed else "estimated",
+                estimated_annual_price=estimated_price,
+                confirmed_price=confirmed_price_val,
+                pricing_type=pricing_type,
                 currency=row["currency"],
                 admin_notes=row["admin_notes"],
                 confirmation_reference=row["confirmation_reference"],
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
-                disclaimer="Submitting a request does NOT register, hold, or reserve the domain name.",
+                disclaimer=disclaimer,
             )
 
     @classmethod
@@ -505,6 +542,16 @@ class RegistrationService:
             for row in rows:
                 status_enum = RegistrationRequestStatus(row["status"])
                 has_confirmed = row["confirmed_price"] is not None
+                confirmed_price_val = float(row["confirmed_price"]) if has_confirmed else None
+                if settings.FREE_TESTING_MODE:
+                    estimated_price = 0.0
+                    pricing_type = "confirmed" if has_confirmed else "free_testing"
+                    disclaimer = settings.FREE_TESTING_DISCLAIMER
+                else:
+                    estimated_price = float(row["estimated_annual_price"])
+                    pricing_type = "confirmed" if has_confirmed else "estimated"
+                    disclaimer = "Submitting a request does NOT register, hold, or reserve the domain name."
+
                 results.append(
                     AdminRegistrationRequestResponse(
                         request_id=row["request_id"],
@@ -514,15 +561,15 @@ class RegistrationService:
                         message=row["message"],
                         status=status_enum,
                         status_label=STATUS_LABELS.get(status_enum, "Unknown Status"),
-                        estimated_annual_price=float(row["estimated_annual_price"]),
-                        confirmed_price=float(row["confirmed_price"]) if has_confirmed else None,
-                        pricing_type="confirmed" if has_confirmed else "estimated",
+                        estimated_annual_price=estimated_price,
+                        confirmed_price=confirmed_price_val,
+                        pricing_type=pricing_type,
                         currency=row["currency"],
                         admin_notes=row["admin_notes"],
                         confirmation_reference=row["confirmation_reference"],
                         created_at=row["created_at"],
                         updated_at=row["updated_at"],
-                        disclaimer="Submitting a request does NOT register, hold, or reserve the domain name.",
+                        disclaimer=disclaimer,
                     )
                 )
             return results

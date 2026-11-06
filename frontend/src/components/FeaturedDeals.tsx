@@ -18,14 +18,14 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({ onClaimDeal }) => 
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-400 mb-1">
               <Sparkles className="h-3.5 w-3.5" />
-              <span>.GY Showcase & Ecosystem</span>
+              <span>Multi-Extension Showcase</span>
             </div>
             <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-              Featured <span className="text-emerald-400 font-mono">.GY</span> Use Cases
+              Featured Domain Use Cases (<span className="text-emerald-400 font-mono">Free Testing</span>)
             </h2>
           </div>
           <p className="text-sm text-slate-400 max-w-md">
-            Memorable names for creators, startups, enterprises, and local businesses. Connect purchased domains directly to Vercel or Render.
+            Memorable names for creators, startups, enterprises, and platforms. Free application testing with instant Vercel and Render DNS presets.
           </p>
         </div>
 
@@ -52,15 +52,15 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({ onClaimDeal }) => 
                   >
                     {deal.badge}
                   </span>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    .GY ccTLD
+                  <span className="text-[11px] text-emerald-400 font-mono font-bold">
+                    $0 / Free
                   </span>
                 </div>
 
                 {/* Sample Domain & Headline */}
                 <div className="space-y-1.5 mb-4">
                   <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-white group-hover:text-emerald-300 transition-colors">
-                    {deal.sampleDomain || `${deal.headline.toLowerCase().replace(/ /g, '')}.gy`}
+                    {deal.sampleDomain}
                   </div>
                   <h3 className="text-sm font-semibold text-slate-200">
                     {deal.headline}
@@ -75,17 +75,17 @@ export const FeaturedDeals: React.FC<FeaturedDealsProps> = ({ onClaimDeal }) => 
                   <div className="flex items-baseline justify-between mb-3">
                     <div>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-extrabold text-white font-mono">
-                          ${deal.salePrice.toFixed(2)}
+                        <span className="text-2xl font-extrabold text-emerald-400 font-mono">
+                          FREE
                         </span>
-                        <span className="text-xs text-slate-400">/ yr</span>
+                        <span className="text-xs text-slate-400">($0 Testing)</span>
                       </div>
                       <div className="text-[11px] text-slate-400">
-                        Accredited registrar rate
+                        No payment required
                       </div>
                     </div>
                     <span className="rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2 py-1 text-[11px] font-semibold text-emerald-300">
-                      Standard Rate
+                      Testing Mode
                     </span>
                   </div>
 

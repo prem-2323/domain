@@ -31,8 +31,8 @@ admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
     "/requests",
     response_model=CustomerRequestCreatedResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Submit a manual .GY domain registration request",
-    description="Submits a customer inquiry for a .gy domain. Enforces validation, deduplication, and returns a private tracking token.",
+    summary="Submit a domain registration request (Free Testing Mode)",
+    description="Submits a customer inquiry for a domain across supported extensions. Enforces validation, deduplication, and returns a private tracking token.",
 )
 async def create_registration_request(
     request: Request,

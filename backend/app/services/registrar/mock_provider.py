@@ -1,6 +1,7 @@
 import uuid
 from typing import List
 
+from app.core.config import settings
 from app.services.registrar.base import BaseRegistrarProvider
 from app.models.registrar import (
     DomainAvailabilityStatus,
@@ -42,13 +43,14 @@ class MockRegistrarProvider(BaseRegistrarProvider):
 
     def _split_domain(self, domain: str) -> tuple[str, str]:
         parts = domain.lower().strip().split(".")
-        sld = parts[0]
-        return sld, ".gy"
+        if len(parts) > 1:
+            return parts[0], "." + ".".join(parts[1:])
+        return parts[0], ".gy"
 
     async def check_availability(self, domain: str) -> DomainCheckResult:
         sld, tld = self._split_domain(domain)
 
-        # Reserved names on .gy
+        # Reserved names
         if sld in self.RESERVED_NAMES:
             return DomainCheckResult(
                 domain=f"{sld}{tld}",
@@ -78,14 +80,15 @@ class MockRegistrarProvider(BaseRegistrarProvider):
 
     async def get_pricing(self, domain: str, tld: str) -> DomainPriceResult:
         sld, parsed_tld = self._split_domain(domain)
-        target_tld = ".gy"
+        target_tld = parsed_tld or tld or ".gy"
+        price = 0.0 if settings.FREE_TESTING_MODE else self.OFFICIAL_REGISTRAR_ANNUAL_PRICE
 
         return DomainPriceResult(
             domain=f"{sld}{target_tld}",
             tld=target_tld,
-            registration_price=self.OFFICIAL_REGISTRAR_ANNUAL_PRICE,
-            renewal_price=self.OFFICIAL_REGISTRAR_ANNUAL_PRICE,
-            transfer_price=self.OFFICIAL_REGISTRAR_ANNUAL_PRICE,
+            registration_price=price,
+            renewal_price=price,
+            transfer_price=price,
             currency="USD",
             discount_percent=None,  # No deceptive fake discounts
             period_years=1,

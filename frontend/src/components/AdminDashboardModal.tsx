@@ -317,14 +317,17 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base font-bold text-white">
-                  .GY Registry Operations & Admin Portal
+                  Registry Operations & Admin Portal
+                </span>
+                <span className="rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 text-[10px] font-mono font-bold">
+                  FREE TESTING MODE ACTIVE
                 </span>
                 <span className="rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.5 text-[10px] font-mono font-bold">
                   Restricted
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Manage customer .gy manual registration inquiries and registrar coordination
+                Manage customer multi-TLD registration inquiries and registrar coordination ($0 Free Testing Mode)
               </p>
             </div>
           </div>
@@ -573,8 +576,8 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                             <div className="flex items-center gap-3 text-[11px] text-slate-500 font-mono">
                               <span>{item.request_id}</span>
                               <span>•</span>
-                              <span>Est: ${item.estimated_annual_price.toFixed(2)}/yr</span>
-                              {item.confirmed_price && (
+                              <span className="text-emerald-400 font-semibold">$0.00 (Free Testing)</span>
+                              {item.confirmed_price !== null && item.confirmed_price !== undefined && (
                                 <>
                                   <span>•</span>
                                   <span className="text-emerald-400 font-semibold">
@@ -609,7 +612,7 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                       <h3 className="text-2xl font-bold font-mono text-white flex items-center gap-2">
                         <span>{selectedRequest.domain}</span>
                         <span className="text-xs bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded font-sans font-medium">
-                          .GY ccTLD
+                          {selectedRequest.domain.slice(selectedRequest.domain.indexOf('.')) || 'TLD'}
                         </span>
                       </h3>
                     </div>
@@ -700,8 +703,8 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                           <label className="text-xs text-slate-400">
                             Confirmed Registrar Price ($ USD)
                           </label>
-                          <span className="text-[10px] text-slate-500">
-                            Est: ${selectedRequest.estimated_annual_price.toFixed(2)}/yr
+                          <span className="text-[10px] text-emerald-400 font-semibold">
+                            Testing Mode: $0.00
                           </span>
                         </div>
                         <input
@@ -710,11 +713,11 @@ export const AdminDashboardModal: React.FC<AdminDashboardModalProps> = ({
                           min="0"
                           value={editConfirmedPrice}
                           onChange={(e) => setEditConfirmedPrice(e.target.value)}
-                          placeholder="e.g. 45.00"
+                          placeholder="0.00"
                           className="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-2 text-xs sm:text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                         />
                         <span className="text-[10px] text-slate-500 mt-1 block">
-                          Leave empty until exact price is confirmed with the accredited registrar.
+                          Leave empty or 0.00 for free testing mode.
                         </span>
                       </div>
 

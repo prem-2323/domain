@@ -18,15 +18,15 @@ class PricingModel(BaseModel):
     period_years: int = Field(default=1, description="Registration period in years")
     is_mock: bool = Field(default=True, description="Flag indicating estimate/unverified rate")
     pricing_note: str = Field(
-        default="Official .GY accredited registrar estimated rate. Final price confirmed upon registrar checkout.",
-        description="Transparent pricing notice"
+        default="FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees.",
+        description="Pricing or testing mode notice"
     )
 
 
 class DomainResult(BaseModel):
-    domain: str = Field(..., description="Full .gy domain name (e.g. tala.gy)")
+    domain: str = Field(..., description="Full domain name (e.g. tala.gy, myshop.com)")
     name: str = Field(..., description="Second level domain name without extension (e.g. tala)")
-    extension: str = Field(default=".gy", description="TLD extension (exclusively .gy)")
+    extension: str = Field(default=".com", description="TLD extension (e.g. .gy, .com, .in, .org)")
     availability: DomainAvailability = Field(..., description="Availability status: available, taken, premium, unverified")
     price: PricingModel = Field(..., description="Pricing breakdown")
     is_exact_match: bool = Field(default=False, description="Whether this is the exact domain requested")
@@ -35,12 +35,12 @@ class DomainResult(BaseModel):
         description="Explicit human-readable status"
     )
     registry: str = Field(
-        default="University of Guyana .GY Registry",
+        default="Accredited Registry Authority",
         description="Official registry authority"
     )
     features: List[str] = Field(
         default_factory=lambda: [
-            "Official .GY Country-Code TLD",
+            "Official TLD Namespace",
             "Cloudflare DNS Management",
             "1-Click Vercel & Render DNS Sync",
             "Accredited Registrar Fulfillment",
@@ -53,18 +53,18 @@ class DomainResult(BaseModel):
 class DomainSearchResponse(BaseModel):
     query: str = Field(..., description="Original search input")
     normalized_name: str = Field(..., description="Sanitized second level domain name")
-    extension: str = Field(default=".gy", description="Domain extension (exclusively .gy)")
-    registry: str = Field(default="University of Guyana .GY Registry", description="Registry authority")
+    extension: str = Field(default=".com", description="Primary domain extension")
+    registry: str = Field(default="Accredited Registry Authority", description="Registry authority")
     official_registrars_url: str = Field(
-        default="https://registry.gy/registrars/",
-        description="Official directory of accredited .gy registrars"
+        default="https://www.icann.org/",
+        description="Official directory of accredited registrars"
     )
     is_valid: bool = Field(default=True, description="Whether domain name is syntactically valid")
-    exact_match: Optional[DomainResult] = Field(default=None, description="Exact match result (e.g. tala.gy)")
-    suggestions: List[DomainResult] = Field(default_factory=list, description="Alternative .gy variations")
-    total_results: int = Field(..., description="Total .gy variations returned")
+    exact_match: Optional[DomainResult] = Field(default=None, description="Exact match result")
+    suggestions: List[DomainResult] = Field(default_factory=list, description="Alternative domain variations")
+    total_results: int = Field(..., description="Total variations returned")
     is_mock: bool = Field(default=True, description="Flag indicating simulated preview")
     disclaimer: str = Field(
-        default="MasterTools Domains operates exclusively with the .gy ccTLD. Availability is unverified until confirmed with an accredited .GY registrar. No fake registrations are performed.",
+        default="FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees.",
         description="Accreditation & verification disclaimer"
     )

@@ -6,7 +6,25 @@ import type {
 } from '../types/domain';
 import { POPULAR_EXTENSIONS } from '../data/extensionCatalog';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const isProd = import.meta.env.PROD;
+const rawApiBase = import.meta.env.VITE_API_BASE_URL;
+export const API_BASE_URL = rawApiBase ? rawApiBase.replace(/\/$/, '') : '';
+
+/**
+ * Returns prioritized API endpoint targets.
+ * In production: strictly uses configured VITE_API_BASE_URL or relative origin path.
+ * Localhost fallback is disabled in production to protect live user traffic.
+ */
+export function getApiEndpoints(path: string): string[] {
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  if (API_BASE_URL) {
+    return [`${API_BASE_URL}${cleanPath}`];
+  }
+  if (!isProd) {
+    return [`http://localhost:8000${cleanPath}`];
+  }
+  return [cleanPath];
+}
 
 export interface BackendStatus {
   connected: boolean;
@@ -24,7 +42,7 @@ export class DomainValidationError extends Error {
   }
 }
 
-// Clean and extract name, strictly targeting .gy
+// Clean and extract name and extension across any TLD (.gy, .com, .in, etc.)
 export function parseDomainQuery(rawQuery: string): { name: string; explicitTld: string } {
   let cleaned = rawQuery.trim().toLowerCase();
   cleaned = cleaned.replace(/^https?:\/\//i, '');
@@ -33,45 +51,40 @@ export function parseDomainQuery(rawQuery: string): { name: string; explicitTld:
 
   const parts = cleaned.split('.');
   const name = parts[0];
-  return { name, explicitTld: '.gy' };
+  const explicitTld = parts.length > 1 ? `.${parts.slice(1).join('.')}` : '.com';
+  return { name, explicitTld };
 }
 
 // Check backend health
 export async function checkBackendHealth(): Promise<BackendStatus> {
-  const endpoints = [
-    `${API_BASE_URL}/api/health`,
-    'http://localhost:8000/api/health',
-  ];
+  const endpoints = getApiEndpoints('/api/health');
 
   for (const url of endpoints) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1200);
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
       if (res.ok) {
         const data = await res.json();
-        return { connected: true, service: data.service, message: 'FastAPI Backend Online' };
+        return { connected: true, service: data.service, message: 'FastAPI Backend Online (Free Testing Mode)' };
       }
     } catch {
       // Continue to next endpoint
     }
   }
 
-  return { connected: false, message: 'FastAPI backend offline (Running in Standalone Mock Mode)' };
+  return { connected: false, message: 'FastAPI backend offline' };
 }
 
-// Fetch extensions from backend if available, fallback to [.gy]
+// Fetch extensions from backend if available
 export async function getExtensionsList(): Promise<string[]> {
-  const endpoints = [
-    `${API_BASE_URL}/api/domains/extensions`,
-    'http://localhost:8000/api/domains/extensions',
-  ];
+  const endpoints = getApiEndpoints('/api/domains/extensions');
 
   for (const url of endpoints) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1200);
+      const timeoutId = setTimeout(() => controller.abort(), 1500);
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
       if (res.ok) {
@@ -93,21 +106,25 @@ function mapApiItemToUiResult(
   isFeatured: boolean,
   disclaimer: string
 ): DomainSearchResult {
+  const parts = item.domain.split('.');
+  const tld = item.extension || (parts.length > 1 ? `.${parts.slice(1).join('.')}` : '.com');
+  const name = item.name || parts[0];
+
   return {
     domain: item.domain,
-    name: item.name,
-    tld: '.gy',
+    name: name,
+    tld: tld,
     status: item.availability,
-    statusLabel: item.status_label || (item.availability === 'taken' ? 'Unavailable / Reserved' : 'Unverified (.GY Registrar Check Required)'),
-    registry: item.registry || 'University of Guyana .GY Registry',
+    statusLabel: item.status_label || (item.availability === 'taken' ? 'Unavailable / Reserved' : 'Unverified – Free for Testing'),
+    registry: item.registry || 'Accredited Registry Authority',
     price: {
-      registration: item.price.registration_price,
-      renewal: item.price.renewal_price,
-      currency: item.price.currency,
-      discountPercent: undefined, // No deceptive fake discounts
-      periodYears: item.price.period_years,
+      registration: 0.00,
+      renewal: 0.00,
+      currency: item.price?.currency || 'USD',
+      discountPercent: undefined,
+      periodYears: item.price?.period_years || 1,
       isMock: true,
-      pricingNote: item.price.pricing_note || 'Official .GY accredited registrar estimated rate.',
+      pricingNote: 'FREE TESTING MODE: No payment is collected by MasterTools Domains. This does not waive actual registry or accredited registrar fees.',
     },
     isPopular: true,
     isFeatured: isFeatured,
@@ -121,12 +138,11 @@ function mapApiItemToUiResult(
   };
 }
 
-// Local mock fallback if backend is unreachable
+// Local mock fallback if backend is unreachable (strictly disabled in production)
 function localMockSearch(rawQuery: string): DomainSearchResult[] {
-  const { name } = parseDomainQuery(rawQuery);
+  const { name, explicitTld } = parseDomainQuery(rawQuery);
   if (!name) return [];
 
-  // Local basic validation check
   if (name.startsWith('-') || name.endsWith('-')) {
     throw new DomainValidationError('Domain name cannot start or end with a hyphen.', rawQuery);
   }
@@ -137,39 +153,42 @@ function localMockSearch(rawQuery: string): DomainSearchResult[] {
     throw new DomainValidationError('Domain label exceeds maximum allowed length of 63 characters.', rawQuery);
   }
 
+  const primaryTld = explicitTld || '.com';
   const variations = [
+    `${name}${primaryTld}`,
     `${name}.gy`,
-    `get${name}.gy`,
-    `${name}app.gy`,
-    `my${name}.gy`,
-    `${name}hq.gy`,
-    `${name}dev.gy`,
-    `${name}cloud.gy`,
-    `${name}tech.gy`,
+    `${name}.com`,
+    `${name}.in`,
+    `${name}.org`,
+    `${name}.net`,
+    `get${name}${primaryTld}`,
+    `${name}app${primaryTld}`,
   ];
 
-  const reservedNames = ['mastertools', 'google', 'apple', 'gov', 'edu', 'registry', 'guyana'];
+  const reservedNames = ['mastertools', 'google', 'apple', 'gov', 'edu', 'registry', 'admin', 'root'];
 
   return variations.map((domain, index) => {
-    const itemSld = domain.replace('.gy', '');
+    const parts = domain.split('.');
+    const itemSld = parts[0];
+    const itemTld = '.' + parts.slice(1).join('.');
     const isReserved = reservedNames.includes(itemSld);
     const status: DomainAvailability = isReserved ? 'taken' : 'unverified';
 
     return {
       domain,
       name: itemSld,
-      tld: '.gy',
+      tld: itemTld,
       status,
-      statusLabel: isReserved ? 'Unavailable / Reserved by .GY Registry' : 'Unverified – Real Registrar Check Required',
-      registry: 'University of Guyana .GY Registry',
+      statusLabel: isReserved ? 'Unavailable / Reserved' : 'Unverified – Free for Testing',
+      registry: 'Accredited Registry Authority',
       price: {
-        registration: 45.00,
-        renewal: 45.00,
+        registration: 0.00,
+        renewal: 0.00,
         currency: 'USD',
         discountPercent: undefined,
         periodYears: 1,
         isMock: true,
-        pricingNote: 'Official .GY accredited registrar estimated rate.',
+        pricingNote: 'FREE TESTING MODE: Free for application testing.',
       },
       isPopular: true,
       isFeatured: index === 0,
@@ -178,18 +197,18 @@ function localMockSearch(rawQuery: string): DomainSearchResult[] {
       vercelReady: true,
       renderReady: true,
       isMock: true,
-      disclaimer: 'MasterTools Domains operates exclusively with .gy ccTLD domains.',
+      disclaimer: 'FREE TESTING MODE: No payment is collected by MasterTools Domains.',
       suggestedAction: isReserved ? 'backorder' : 'verify',
     };
   });
 }
 
-// Check if mock fallback is explicitly enabled by configuration
-const ENABLE_MOCK_FALLBACK = import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
+// Mock fallback disabled by default in production
+const ENABLE_MOCK_FALLBACK = !isProd && import.meta.env.VITE_ENABLE_MOCK_FALLBACK === 'true';
 
 export class ServiceUnavailableError extends Error {
   constructor(
-    message: string = 'The .GY domain search backend service is currently offline or unreachable. Live registry verification cannot be performed.'
+    message: string = 'The domain search backend service is currently unreachable. Live registrar verification cannot be performed. Please verify backend connectivity.'
   ) {
     super(message);
     this.name = 'ServiceUnavailableError';
@@ -247,11 +266,7 @@ export async function adminLogin(
   username: string,
   password: string
 ): Promise<AdminLoginResponse> {
-  const endpoints = [
-    `${API_BASE_URL}/api/admin/login`,
-    'http://localhost:8000/api/admin/login',
-  ];
-
+  const endpoints = getApiEndpoints('/api/admin/login');
   let lastError: Error | null = null;
 
   for (const url of endpoints) {
@@ -291,10 +306,7 @@ export async function adminLogout(): Promise<void> {
   clearAdminToken();
   if (!token) return;
 
-  const endpoints = [
-    `${API_BASE_URL}/api/admin/logout`,
-    'http://localhost:8000/api/admin/logout',
-  ];
+  const endpoints = getApiEndpoints('/api/admin/logout');
 
   for (const url of endpoints) {
     try {
@@ -319,10 +331,7 @@ export async function checkAdminSession(): Promise<{ authenticated: boolean; use
     return { authenticated: false, username: '' };
   }
 
-  const endpoints = [
-    `${API_BASE_URL}/api/admin/me`,
-    'http://localhost:8000/api/admin/me',
-  ];
+  const endpoints = getApiEndpoints('/api/admin/me');
 
   for (const url of endpoints) {
     try {
@@ -352,15 +361,12 @@ export async function searchDomains(rawQuery: string): Promise<DomainSearchResul
   const trimmed = rawQuery.trim();
   if (!trimmed) return [];
 
-  const endpoints = [
-    `${API_BASE_URL}/api/domains/search?name=${encodeURIComponent(trimmed)}`,
-    `http://localhost:8000/api/domains/search?name=${encodeURIComponent(trimmed)}`,
-  ];
+  const endpoints = getApiEndpoints(`/api/domains/search?name=${encodeURIComponent(trimmed)}`);
 
   for (const url of endpoints) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2500);
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
 
@@ -400,24 +406,19 @@ export async function searchDomains(rawQuery: string): Promise<DomainSearchResul
     }
   }
 
-  // Fallback to local mock ONLY if explicitly enabled by configuration
   if (ENABLE_MOCK_FALLBACK) {
     return localMockSearch(trimmed);
   }
 
   throw new ServiceUnavailableError(
-    'The .GY domain search backend service is currently unreachable. Live registrar verification cannot be performed. Please verify backend connectivity.'
+    'The domain search backend service is currently unreachable. Live registrar verification cannot be performed. Please verify backend connectivity.'
   );
 }
 
 export async function submitRegistrationRequest(
   payload: CreateRegistrationRequestPayload
 ): Promise<RegistrationRequestItem> {
-  const endpoints = [
-    `${API_BASE_URL}/api/registrations/requests`,
-    'http://localhost:8000/api/registrations/requests',
-  ];
-
+  const endpoints = getApiEndpoints('/api/registrations/requests');
   let lastError: Error | null = null;
 
   for (const url of endpoints) {
@@ -457,10 +458,7 @@ export async function getRegistrationRequest(
   requestId: string,
   trackingToken?: string
 ): Promise<RegistrationRequestItem> {
-  const endpoints = [
-    `${API_BASE_URL}/api/registrations/requests/${encodeURIComponent(requestId)}`,
-    `http://localhost:8000/api/registrations/requests/${encodeURIComponent(requestId)}`,
-  ];
+  const endpoints = getApiEndpoints(`/api/registrations/requests/${encodeURIComponent(requestId)}`);
 
   const headers: Record<string, string> = {};
   if (trackingToken && trackingToken.trim()) {
@@ -499,10 +497,7 @@ export async function getPublicRegistrationRequest(
   requestId: string,
   trackingToken?: string
 ): Promise<PublicRegistrationRequestItem | RegistrationRequestItem> {
-  const endpoints = [
-    `${API_BASE_URL}/api/registrations/requests/${encodeURIComponent(requestId)}`,
-    `http://localhost:8000/api/registrations/requests/${encodeURIComponent(requestId)}`,
-  ];
+  const endpoints = getApiEndpoints(`/api/registrations/requests/${encodeURIComponent(requestId)}`);
 
   const headers: Record<string, string> = {};
   if (trackingToken && trackingToken.trim()) {
@@ -542,10 +537,7 @@ export async function listRegistrationRequests(
 ): Promise<RegistrationRequestListResponse> {
   const token = getAdminToken();
   const queryParam = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : '';
-  const endpoints = [
-    `${API_BASE_URL}/api/registrations/requests${queryParam}`,
-    `http://localhost:8000/api/registrations/requests${queryParam}`,
-  ];
+  const endpoints = getApiEndpoints(`/api/registrations/requests${queryParam}`);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -604,10 +596,7 @@ export async function updateRegistrationRequest(
   payload: UpdateRegistrationRequestPayload
 ): Promise<RegistrationRequestItem> {
   const token = getAdminToken();
-  const endpoints = [
-    `${API_BASE_URL}/api/registrations/requests/${encodeURIComponent(requestId)}`,
-    `http://localhost:8000/api/registrations/requests/${encodeURIComponent(requestId)}`,
-  ];
+  const endpoints = getApiEndpoints(`/api/registrations/requests/${encodeURIComponent(requestId)}`);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
