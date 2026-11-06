@@ -49,8 +49,14 @@ class ValidationService:
         if len(cleaned) > 253:
             return False, cleaned, None, "Full domain name cannot exceed 253 characters."
 
+        if ".." in cleaned:
+            return False, cleaned, None, "Domain name cannot contain consecutive dots."
+
         # Check if user entered an extension (e.g. "tala", "tala.gy", or "tala.com")
         parts = cleaned.split(".")
+        if any(len(p) == 0 for p in parts):
+            return False, cleaned, None, "Domain label cannot be empty."
+
         if len(parts) > 1:
             sld = parts[0]
             explicit_tld = ".gy"

@@ -23,6 +23,7 @@ import {
   getExtensionsList,
   searchDomains,
   DomainValidationError,
+  ServiceUnavailableError,
 } from './api/domainService';
 import type { BackendStatus } from './api/domainService';
 import { Check, X } from 'lucide-react';
@@ -74,6 +75,9 @@ export function App() {
       setSearchResults(finalResults);
     } catch (err: unknown) {
       if (err instanceof DomainValidationError) {
+        setSearchError(err.message);
+        setSearchResults([]);
+      } else if (err instanceof ServiceUnavailableError) {
         setSearchError(err.message);
         setSearchResults([]);
       } else if (err instanceof Error) {

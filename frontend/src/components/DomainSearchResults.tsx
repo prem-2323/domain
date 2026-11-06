@@ -71,7 +71,50 @@ export const DomainSearchResults: React.FC<DomainSearchResultsProps> = ({
     );
   }
 
-  // 2. Error State (e.g. from FastAPI validation failure)
+  // 2. Error States
+  const isServiceUnavailable =
+    Boolean(errorMessage && (
+      errorMessage.toLowerCase().includes('unreachable') ||
+      errorMessage.toLowerCase().includes('service unavailable') ||
+      errorMessage.toLowerCase().includes('connectivity') ||
+      errorMessage.toLowerCase().includes('failed to fetch')
+    ));
+
+  if (errorMessage && isServiceUnavailable) {
+    return (
+      <section id="search-results-section" className="w-full max-w-3xl mx-auto py-8 px-4">
+        <div className="rounded-2xl border border-amber-500/30 bg-gradient-to-b from-[#1c140d] to-[#0d0a09] p-6 sm:p-8 shadow-xl">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 shrink-0">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+            <div className="space-y-2 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                  Service Offline
+                </span>
+                <span className="text-xs text-slate-400 font-mono">.GY Search Engine</span>
+              </div>
+              <h3 className="text-lg font-bold text-white">
+                Live .GY Registry Search Service Unavailable
+              </h3>
+              <p className="text-sm text-amber-200/90 leading-relaxed font-medium">
+                {errorMessage}
+              </p>
+              <div className="mt-4 rounded-xl border border-slate-800 bg-[#070b14] p-3 text-xs text-slate-300 space-y-1">
+                <div className="font-semibold text-slate-200 mb-1">Production Transparency Policy:</div>
+                <p className="text-slate-400 text-xs">
+                  Silent simulated mock search results are disabled in production to protect users from registering unavailable domains or seeing inaccurate pricing. Live registry search will resume once the backend service is reachable.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // Validation Error State (e.g. from FastAPI validation failure)
   if (errorMessage) {
     return (
       <section id="search-results-section" className="w-full max-w-3xl mx-auto py-8 px-4">

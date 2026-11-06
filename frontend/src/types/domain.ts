@@ -122,23 +122,48 @@ export interface UpdateRegistrationRequestPayload {
   status?: RegistrationRequestStatus;
   admin_notes?: string;
   confirmed_price?: number;
+  confirmation_reference?: string;
 }
 
 export interface RegistrationRequestItem {
   request_id: string;
+  tracking_token?: string;
   domain: string;
-  customer_name: string;
-  customer_email: string;
+  customer_name?: string;
+  customer_email?: string;
   message?: string | null;
   status: RegistrationRequestStatus;
   status_label: string;
   estimated_annual_price: number;
   confirmed_price?: number | null;
+  pricing_type?: 'estimated' | 'confirmed';
+  pricing_amount?: number;
   currency: string;
   admin_notes?: string | null;
+  confirmation_reference?: string | null;
   created_at: string;
   updated_at: string;
   disclaimer: string;
+}
+
+export interface PublicRegistrationRequestItem {
+  request_id: string;
+  domain: string;
+  status: RegistrationRequestStatus;
+  status_label: string;
+  pricing_type: 'estimated' | 'confirmed';
+  pricing_amount: number;
+  currency: string;
+  created_at: string;
+  updated_at: string;
+  disclaimer: string;
+}
+
+export interface AdminLoginResponse {
+  session_token: string;
+  username: string;
+  expires_at: string;
+  message: string;
 }
 
 export interface RegistrationRequestListResponse {

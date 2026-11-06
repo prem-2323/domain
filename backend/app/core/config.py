@@ -14,7 +14,47 @@ class Settings(BaseSettings):
     APP_ENV: str = Field(default="development", description="development | staging | production")
     APP_NAME: str = "MasterTools Domains API"
     DEBUG: bool = True
-    CORS_ORIGINS: List[str] = ["*"]
+    SECRET_KEY: str = Field(
+        default="mastertools-domains-secret-admin-session-key-2026",
+        description="Secret key for signing admin sessions",
+    )
+    CORS_ORIGINS: List[str] = Field(
+        default=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://localhost:8000",
+        ],
+        description="Allowed frontend CORS origins",
+    )
+
+    # Admin Authentication
+    ADMIN_USERNAME: str = Field(
+        default="admin",
+        description="Admin dashboard username",
+    )
+    ADMIN_PASSWORD: str = Field(
+        default="MasterToolsGy2026!Admin",
+        description="Admin dashboard password",
+    )
+    ADMIN_SESSION_EXPIRE_HOURS: int = Field(
+        default=24,
+        description="Admin session lifetime in hours",
+    )
+
+    # Security & Rate Limiting Limits
+    MAX_REQUEST_BODY_BYTES: int = Field(
+        default=64 * 1024,
+        description="Maximum request body size in bytes (64 KB)",
+    )
+    RATE_LIMIT_CREATE_PER_MINUTE: int = Field(
+        default=10,
+        description="Max registration creation requests per minute per IP",
+    )
+    RATE_LIMIT_TRACK_PER_MINUTE: int = Field(
+        default=60,
+        description="Max tracking lookups per minute per IP",
+    )
 
     # Registrar Provider Switcher ('mock' | 'godaddy' | 'namecheap' | 'porkbun')
     REGISTRAR_PROVIDER: str = Field(

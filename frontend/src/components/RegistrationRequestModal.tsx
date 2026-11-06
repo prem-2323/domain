@@ -34,6 +34,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [createdRequest, setCreatedRequest] = useState<RegistrationRequestItem | null>(null);
   const [copiedId, setCopiedId] = useState(false);
+  const [copiedToken, setCopiedToken] = useState(false);
 
   if (!isOpen || !domainItem) return null;
 
@@ -89,12 +90,20 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
     setTimeout(() => setCopiedId(false), 2000);
   };
 
+  const handleCopyToken = (token: string) => {
+    navigator.clipboard.writeText(token);
+    setCopiedToken(true);
+    setTimeout(() => setCopiedToken(false), 2000);
+  };
+
   const handleResetAndClose = () => {
     setCustomerName('');
     setCustomerEmail('');
     setMessage('');
     setErrorMessage(null);
     setCreatedRequest(null);
+    setCopiedId(false);
+    setCopiedToken(false);
     onClose();
   };
 
@@ -136,14 +145,14 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
             {/* Request ID Display */}
             <div className="rounded-2xl border border-slate-800 bg-[#070b14] p-4 text-left space-y-2">
               <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
-                Your Unique Request ID:
+                Your Unique Request ID (128-Bit Cryptographic ID):
               </div>
               <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-900 border border-slate-700/80 px-3 py-2 font-mono text-sm text-emerald-400 font-bold">
-                <span>{createdRequest.request_id}</span>
+                <span className="truncate">{createdRequest.request_id}</span>
                 <button
                   type="button"
                   onClick={() => handleCopyId(createdRequest.request_id)}
-                  className="flex items-center gap-1 text-xs font-sans text-slate-300 hover:text-white bg-slate-800 px-2 py-1 rounded transition-colors"
+                  className="flex items-center gap-1 text-xs font-sans text-slate-300 hover:text-white bg-slate-800 px-2 py-1 rounded transition-colors shrink-0"
                 >
                   {copiedId ? (
                     <>
@@ -159,9 +168,46 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                 </button>
               </div>
               <div className="text-xs text-slate-400 pt-1">
-                Please save this ID to reference your registration request with support.
+                Save this request ID to reference your inquiry. Public tracking displays status without exposing your private info.
               </div>
             </div>
+
+            {/* Customer Private Tracking Token */}
+            {createdRequest.tracking_token && (
+              <div className="rounded-2xl border border-indigo-500/30 bg-indigo-950/20 p-4 text-left space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-indigo-300 uppercase tracking-wider font-semibold">
+                    Private Customer Tracking Token:
+                  </div>
+                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-mono">
+                    Keep Secret
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-slate-900 border border-indigo-500/40 px-3 py-2 font-mono text-xs text-indigo-300">
+                  <span className="truncate max-w-[280px]">{createdRequest.tracking_token}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyToken(createdRequest.tracking_token!)}
+                    className="flex items-center gap-1 text-xs font-sans text-slate-300 hover:text-white bg-slate-800 px-2 py-1 rounded transition-colors shrink-0"
+                  >
+                    {copiedToken ? (
+                      <>
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                        <span>Copied!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-3.5 w-3.5" />
+                        <span>Copy Token</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  This token allows you to securely verify and view your customer submission without exposing your contact details publicly.
+                </div>
+              </div>
+            )}
 
             {/* Request Summary */}
             <div className="rounded-xl border border-slate-800/80 bg-slate-900/50 p-3.5 text-left text-xs space-y-1.5">
@@ -178,8 +224,8 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                 <span className="text-amber-300 font-semibold">{createdRequest.status_label}</span>
               </div>
               <div className="flex justify-between text-slate-300">
-                <span className="text-slate-400">Estimated Annual Rate:</span>
-                <span className="font-mono text-emerald-400 font-bold">${createdRequest.estimated_annual_price.toFixed(2)}/yr</span>
+                <span className="text-slate-400">Estimated Rate:</span>
+                <span className="font-mono text-emerald-400 font-bold">~${createdRequest.estimated_annual_price.toFixed(2)}/yr (Estimate)</span>
               </div>
             </div>
 
@@ -263,7 +309,7 @@ export const RegistrationRequestModal: React.FC<RegistrationRequestModalProps> =
                 <div className="flex items-center justify-between rounded-xl bg-slate-900 border border-slate-800 px-3.5 py-2.5 font-mono text-sm text-emerald-400 font-semibold">
                   <span>{targetDomain}</span>
                   <span className="text-xs text-slate-400 font-sans font-normal">
-                    Est. ${domainItem.price.registration.toFixed(2)}/yr
+                    Est. ~${domainItem.price.registration.toFixed(2)}/yr (Subject to registrar confirmation)
                   </span>
                 </div>
               </div>

@@ -54,16 +54,12 @@ class PricingService:
                 is_mock=True,
             )
 
-        # Calculate introductory discount if base_reg < base_renewal
-        discount = 0
-        if base_renewal > base_reg:
-            discount = int(round(((base_renewal - base_reg) / base_renewal) * 100))
-
         return PricingModel(
             registration_price=base_reg,
             renewal_price=base_renewal,
             currency="USD",
-            discount_percent=discount if discount > 0 else None,
+            discount_percent=None,
             period_years=1,
             is_mock=True,
+            pricing_note="Estimated accredited registrar rate (~$45.00/yr). Final price confirmed upon registrar quote.",
         )
